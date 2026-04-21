@@ -1,13 +1,15 @@
-package main
+package logger
 
 import (
 	"fmt"
 	"log/slog"
 	"os"
 	"path"
+
+	"github.com/s-588/mesh-network/internal/config"
 )
 
-func setupSlog(cfg Config) error {
+func SetupSlog(cfg config.Config) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("can't open home directory: %w", err)
