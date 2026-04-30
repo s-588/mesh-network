@@ -23,6 +23,39 @@ const (
 	DATAMsgType
 )
 
+const (
+	// HeaderSize is how many bytes take all Header fields
+	HeaderSize = 2 + // Length	 uint16
+		1 + // MsgType   uint8
+		8 + // Timestamp uint64
+		1 + // TTL       uint8
+		8 + // SrcID     uint64
+		8 + // DstID     uint64
+		4 + // SrcIPv4 netip.Addr
+		4 // DstIPv4 netip.Addr
+
+	// HELLOSize is how many bytes take all Header and HELLO fields
+	HELLOSize = HeaderSize +
+		2 // Port uint16
+
+	// RREQSize is how many bytes take all Header and RREQSize fields
+	RREQSize = HeaderSize +
+		4 + // SrcSeq uint32
+		4 + // DstSeq uint32
+		1 + // HopCount uint8
+		8 // BroadcastID uint64
+
+	// RREPSize is how many bytes take all Header and RREPSize fields
+	RREPSize = HeaderSize +
+		4 + // Lifetime uint32
+		4 + // DstSeq uint32
+		1 // HopCount uint8
+
+	RERRSize = HeaderSize +
+		1 + // ErrorCode uint8
+		8 // UnreachableDstID uint64
+)
+
 // Header struct contains general fields that all other messages must have.
 type Header struct{
 	MsgType MsgType // Type of the message.
