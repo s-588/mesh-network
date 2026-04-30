@@ -6,6 +6,15 @@ import (
 
 type MsgType uint8
 
+func (m MsgType) IsValid() bool {
+	switch m {
+	case HelloMsgType, RREQMsgType, RREPMsgType, RERRMsgType, DATAMsgType:
+		return true
+	default:
+		return false
+	}
+}
+
 const (
 	HelloMsgType MsgType = iota + 1
 	RREQMsgType
