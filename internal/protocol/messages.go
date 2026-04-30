@@ -8,7 +8,7 @@ type MsgType uint8
 
 func (m MsgType) IsValid() bool {
 	switch m {
-	case HelloMsgType, RREQMsgType, RREPMsgType, RERRMsgType, DATAMsgType:
+	case HELLOMsgType, RREQMsgType, RREPMsgType, RERRMsgType, DATAMsgType:
 		return true
 	default:
 		return false
@@ -16,7 +16,7 @@ func (m MsgType) IsValid() bool {
 }
 
 const (
-	HelloMsgType MsgType = iota + 1
+	HELLOMsgType MsgType = iota + 1
 	RREQMsgType
 	RREPMsgType
 	RERRMsgType
