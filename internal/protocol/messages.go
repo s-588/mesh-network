@@ -57,15 +57,50 @@ const (
 )
 
 // Header struct contains general fields that all other messages must have.
-type Header struct{
-	MsgType MsgType // Type of the message.
-	SrcIP netip.Addr // IP address of sending host.
-	SrcID uint64 // Snowflake id identifying sender.
-	DstIP netip.Addr // IP address of intended recipient.
-	DstID uint64 // Snowflake id identifying recipient.
-	Timestamp uint64 // Timestamp when message was send.
-	TTL uint8 // Hops remaining before discard (max 255).
-	Length uint16
+// If the Header struct need to be changed HeaderSize constanta must be updated.
+type Header struct {
+	Length    uint16     // The length of the full message.
+	MsgType   MsgType    // Type of the message.
+	Timestamp uint64     // Timestamp when message was send.
+	TTL       uint8      // Hops remaining before discard (max 255). Default is 32.
+	SrcID     uint64     // Snowflake id identifying sender.
+	DstID     uint64     // Snowflake id identifying recipient.
+	SrcIP     netip.Addr // IPv4 address of sending host.
+	DstIP     netip.Addr // IPv4 address of intended recipient.
+}
+
+type HeaderOpts struct {
+	MsgType      MsgType
+	SrcIP, DstIP netip.Addr
+	SrcID, DstID uint64
+	Timestamp    uint64
+	TTL          uint8
+}
+
+// NewHeader creates pointer to Header struct.
+// Return error if either Src or Dst IPs are incorrect or not IPv4.
+func NewHeader(opts HeaderOpts) (*Header, error) {
+	if !opts.SrcIP.IsValid() || !opts.SrcIP.Is4() {
+		return nil, fmt.Errorf("source IP must be IPv4: %s", opts.SrcIP.String())
+	}
+	if !opts.DstIP.IsValid() || !opts.DstIP.Is4() {
+		return nil, fmt.Errorf("destination IP must be IPv4: %s", opts.SrcIP.String())
+	}
+	if !opts.MsgType.IsValid() {
+
+	}
+	h := &Header{
+		MsgType:   opts.MsgType,
+		SrcIP:     opts.SrcIP,
+		DstIP:     opts.DstIP,
+		SrcID:     opts.SrcID,
+		DstID:     opts.DstID,
+		Timestamp: opts.Timestamp,
+		TTL:       opts.TTL,
+	}
+	return h, nil
+}
+
 }
 
 // HELLO is a message that every node send to find neighbours and signal neighbours about being alive.
