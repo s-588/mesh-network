@@ -1,6 +1,8 @@
 package protocol_test
 
 import (
+	"net/netip"
+	"reflect"
 	"testing"
 
 	"github.com/s-588/mesh-network/internal/protocol"
@@ -29,31 +31,41 @@ func TestNewHeader(t *testing.T) {
 		want    *protocol.Header
 		wantErr bool
 	}{
-		struct{name string; opts protocol.HeaderOpts; want *protocol.Header; wantErr bool}{
-			name: "empty opts, want err",
-			opts: protocol.HeaderOpts{},
-			want: nil,
+		struct {
+			name    string
+			opts    protocol.HeaderOpts
+			want    *protocol.Header
+			wantErr bool
+		}{
+			name:    "empty opts, want err",
+			opts:    protocol.HeaderOpts{},
+			want:    nil,
 			wantErr: true,
 		},
-		struct{name string; opts protocol.HeaderOpts; want *protocol.Header; wantErr bool}{
+		struct {
+			name    string
+			opts    protocol.HeaderOpts
+			want    *protocol.Header
+			wantErr bool
+		}{
 			name: "normal header",
 			opts: protocol.HeaderOpts{
-				MsgType: protocol.HELLOMsgType,
-				SrcIP: netip.AddrFrom4([4]byte{128,0,0,1}),
-				DstIP: netip.AddrFrom4([4]byte{128,0,0,1}),
-				SrcID: 1,
-				DstID: 2,
+				MsgType:   protocol.HELLOMsgType,
+				SrcIP:     netip.AddrFrom4([4]byte{128, 0, 0, 1}),
+				DstIP:     netip.AddrFrom4([4]byte{128, 0, 0, 1}),
+				SrcID:     1,
+				DstID:     2,
 				Timestamp: 3,
-				TTL: 4,
+				TTL:       4,
 			},
 			want: &protocol.Header{
-				MsgType: protocol.HELLOMsgType,
-				SrcIP: netip.AddrFrom4([4]byte{128,0,0,1}),
-				DstIP: netip.AddrFrom4([4]byte{128,0,0,1}),
-				SrcID: 1,
-				DstID: 2,
+				MsgType:   protocol.HELLOMsgType,
+				SrcIP:     netip.AddrFrom4([4]byte{128, 0, 0, 1}),
+				DstIP:     netip.AddrFrom4([4]byte{128, 0, 0, 1}),
+				SrcID:     1,
+				DstID:     2,
 				Timestamp: 3,
-				TTL: 4,
+				TTL:       4,
 			},
 			wantErr: false,
 		},
@@ -68,11 +80,42 @@ func TestNewHeader(t *testing.T) {
 				return
 			}
 			if tt.wantErr {
-				t.Errorf("NewHeader() succeeded unexpectedly:\ngot %v\nwant %v\nwant err = %t",got, tt.want, tt.wantErr)
+				t.Errorf("NewHeader() succeeded unexpectedly:\ngot %v\nwant %v\nwant err = %t", got, tt.want, tt.wantErr)
 			}
-			if !reflect.DeepEqual(got, tt.want){
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("NewHeader() failed:\ngot: %v\nwant: %v", got, tt.want)
 			}
 		})
 	}
+}
+
+func TestHeader_RoundTrip(t *testing.T) {
+	h, err := protocol.NewHeader(protocol.HeaderOpts{
+		MsgType:   protocol.HELLOMsgType,
+		SrcIP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		DstIP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		SrcID:     1,
+		DstID:     2,
+		Timestamp: 3,
+		TTL:       4,
+	})
+	if err != nil {
+		t.Fatalf("NewHeader unexpected fail: %s", err)
+	}
+
+	data, err := h.MarshalBinary()
+	if err != nil {
+		t.Fatalf("Marshal unexpected fail: %s", err)
+	}
+
+	newH := &protocol.Header{}
+	err = newH.UnmarshalBinary(data)
+	if err != nil {
+		t.Fatalf("Unmarshal unexpected fail: %s", err)
+	}
+
+	if !reflect.DeepEqual(h, newH) {
+		t.Fatalf("round trip failed:\nwant:%v\ngot:%v", h, newH)
+	}
+
 }

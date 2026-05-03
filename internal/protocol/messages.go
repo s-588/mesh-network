@@ -100,6 +100,75 @@ func NewHeader(opts HeaderOpts) (*Header, error) {
 	return h, nil
 }
 
+func (h *Header) MarshalBinary() ([]byte, error) {
+	if !h.SrcIP.IsValid() || !h.DstIP.IsValid() {
+		return nil, fmt.Errorf("invalid IP address")
+	}
+	if !h.SrcIP.Is4() || !h.DstIP.Is4() {
+		return nil, fmt.Errorf("only IPv4 addresses are supported")
+	}
+
+	result := make([]byte, HeaderSize)
+	offset := 0
+
+	result[offset] = byte(h.MsgType)
+	offset++
+
+	binary.BigEndian.PutUint64(result[offset:], h.Timestamp)
+	offset += 8
+
+	result[offset] = h.TTL
+	offset++
+
+	binary.BigEndian.PutUint64(result[offset:], h.SrcID)
+	offset += 8
+
+	binary.BigEndian.PutUint64(result[offset:], h.DstID)
+	offset += 8
+
+	srcIP := h.SrcIP.As4()
+	copy(result[offset:], srcIP[:])
+	offset += 4
+
+	dstIP := h.DstIP.As4()
+	copy(result[offset:], dstIP[:])
+	offset += 4
+
+	return result, nil
+}
+
+func (h *Header) UnmarshalBinary(data []byte) error {
+	if len(data) != HeaderSize {
+		return fmt.Errorf("invalid header size, got %d, want %d", len(data), HeaderSize)
+	}
+
+	offset := 0
+
+	h.MsgType = MsgType(data[offset])
+	offset++
+
+	h.Timestamp = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+
+	h.TTL = data[offset]
+	offset++
+
+	h.SrcID = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+
+	h.DstID = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+
+	var src [4]byte
+	copy(src[:], data[offset:offset+4])
+	h.SrcIP = netip.AddrFrom4(src)
+	offset += 4
+
+	var dst [4]byte
+	copy(dst[:], data[offset:offset+4])
+	h.DstIP = netip.AddrFrom4(dst)
+
+	return nil
 }
 
 // HELLO is a message that every node send to find neighbours and signal neighbours about being alive.
