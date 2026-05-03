@@ -484,9 +484,83 @@ func (m *RERR) UnmarshalBinary(data []byte) error {
 }
 
 // DATA is a message that contain user data.
-type DATA struct{
+type DATA struct {
 	Header
 
-	SeqNum uint32 // Sequential number of packet, need for tracking missed packages.
+	SeqNum  uint32 // Sequential number of packet, need for tracking missed packages.
 	Payload []byte // Message data.
+}
+
+// Size return size of the persistent fields + length of the payload.
+func (msg *DATA) Size() int {
+	// Header.Size()  x
+	// SeqNum uint32  4
+	// Payload []byte y
+	return HeaderSize + 4 + len(msg.Payload)
+}
+
+type DATAOpts struct {
+	HeaderOpts
+	SeqNum  uint32
+	Payload []byte
+}
+
+// NewDATA creates a pointer to a DATA struct.
+// Returns an error if Header fields are invalid.
+func NewDATA(opts DATAOpts) (*DATA, error) {
+	if opts.Payload == nil {
+		return nil, fmt.Errorf("payload can't be nil")
+	}
+	header, err := NewHeader(opts.HeaderOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	data := &DATA{
+		Header:  *header,
+		SeqNum:  opts.SeqNum,
+		Payload: opts.Payload,
+	}
+
+	return data, nil
+}
+
+func (msg *DATA) MarshalBinary() ([]byte, error) {
+	result := make([]byte, 0, msg.Size())
+
+	headerBytes, err := msg.Header.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, headerBytes...)
+
+	seqBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(seqBuf, msg.SeqNum)
+	result = append(result, seqBuf...)
+
+	result = append(result, msg.Payload...)
+
+	return result, nil
+}
+
+func (msg *DATA) UnmarshalBinary(data []byte) error {
+	minLen := HeaderSize + 4 // header + SeqNum
+	if len(data) < minLen {
+		return fmt.Errorf("invalid DATA size, got %d, want at least %d", len(data), minLen)
+	}
+
+	err := msg.Header.UnmarshalBinary(data[:HeaderSize])
+	if err != nil {
+		return err
+	}
+
+	offset := HeaderSize
+
+	msg.SeqNum = binary.BigEndian.Uint32(data[offset : offset+4])
+	offset += 4
+
+	msg.Payload = make([]byte, len(data[offset:]))
+	copy(msg.Payload, data[offset:])
+
+	return nil
 }
