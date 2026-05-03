@@ -172,10 +172,76 @@ func (h *Header) UnmarshalBinary(data []byte) error {
 }
 
 // HELLO is a message that every node send to find neighbours and signal neighbours about being alive.
-type HELLO struct{
+type HELLO struct {
 	Header
 
 	Port uint16 // Port where nodes should send messages.
+}
+
+type HELLOOpts struct {
+    HeaderOpts            
+    Port          uint16  
+}
+
+// NewHELLO creates a pointer to a HELLO struct.
+// Returns an error if Header fields are invalid or Port is zero.
+func NewHELLO(opts HELLOOpts) (*HELLO, error) {
+    header, err := NewHeader(opts.HeaderOpts)
+    if err != nil {
+        return nil, err
+    }
+
+    if opts.Port == 0 {
+        return nil, fmt.Errorf("HELLO Port must be non‑zero")
+    }
+
+    hello := &HELLO{
+        Header: Header{
+            MsgType:   header.MsgType,
+            Timestamp: header.Timestamp,
+            TTL:       header.TTL,
+            SrcID:     header.SrcID,
+            DstID:     header.DstID,
+            SrcIP:     header.SrcIP,
+            DstIP:     header.DstIP,
+        },
+        Port: opts.Port,
+    }
+
+    return hello, nil
+}
+
+// MarshalBinary encodes HELLO into a byte slice.
+func (m *HELLO) MarshalBinary() ([]byte, error) {
+	headerBytes, err := m.Header.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure result length matches HELLOSize.
+	result := make([]byte, HELLOSize)
+	copy(result, headerBytes)
+
+	offset := len(headerBytes)
+	binary.BigEndian.PutUint16(result[offset:], m.Port)
+
+	return result, nil
+}
+
+// UnmarshalBinary decodes given data into HELLO.
+func (m *HELLO) UnmarshalBinary(data []byte) error {
+	if len(data) != HELLOSize {
+		return fmt.Errorf("invalid HELLO size, got %d, want %d", len(data), HELLOSize)
+	}
+
+	// Reuse Header.UnmarshalBinary.
+	err := m.Header.UnmarshalBinary(data[:HeaderSize])
+	if err != nil {
+		return err
+	}
+
+	m.Port = binary.BigEndian.Uint16(data[HeaderSize:HeaderSize+2])
+	return nil
 }
 
 // RREQ is a message request that send to find route for specic node.
