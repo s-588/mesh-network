@@ -333,12 +333,83 @@ func (m *RREQ) UnmarshalBinary(data []byte) error {
 }
 
 // RREP is a message reply for RREQ with data of founded node.
-type RREP struct{
+type RREP struct {
 	Header
 
 	Lifetime uint32 // Count of seconds route should live.
-	DstSeq uint32 // Counter for choosing freshest route.
-	HopCount uint8 // Count of hops to destination.
+	DstSeq   uint32 // Counter for choosing freshest route.
+	HopCount uint8  // Count of hops to destination.
+}
+
+type RREPOpts struct {
+	HeaderOpts
+
+	Lifetime uint32
+	DstSeq   uint32
+	HopCount uint8
+}
+
+// NewRREP creates a pointer to an RREP struct.
+// Returns an error if Header fields are invalid.
+func NewRREP(opts RREPOpts) (*RREP, error) {
+	header, err := NewHeader(opts.HeaderOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	rrep := &RREP{
+		Header:   *header,
+		Lifetime: opts.Lifetime,
+		DstSeq:   opts.DstSeq,
+		HopCount: opts.HopCount,
+	}
+
+	return rrep, nil
+}
+
+func (m *RREP) MarshalBinary() ([]byte, error) {
+	headerBytes, err := m.Header.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]byte, RREPSize)
+	copy(result, headerBytes)
+
+	offset := len(headerBytes)
+
+	binary.BigEndian.PutUint32(result[offset:], m.Lifetime)
+	offset += 4
+
+	binary.BigEndian.PutUint32(result[offset:], m.DstSeq)
+	offset += 4
+
+	result[offset] = m.HopCount
+
+	return result, nil
+}
+
+func (m *RREP) UnmarshalBinary(data []byte) error {
+	if len(data) != RREPSize {
+		return fmt.Errorf("invalid RREP size, got %d, want %d", len(data), RREPSize)
+	}
+
+	err := m.Header.UnmarshalBinary(data[:HeaderSize])
+	if err != nil {
+		return err
+	}
+
+	offset := HeaderSize
+
+	m.Lifetime = binary.BigEndian.Uint32(data[offset:])
+	offset += 4
+
+	m.DstSeq = binary.BigEndian.Uint32(data[offset:])
+	offset += 4
+
+	m.HopCount = data[offset]
+
+	return nil
 }
 
 // RERR is a message that notifies node that something off.

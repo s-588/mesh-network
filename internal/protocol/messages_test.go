@@ -415,3 +415,147 @@ func TestRREQ_RoundTrip(t *testing.T) {
 		t.Fatalf("round trip failed:\nwant:\n%+v\ngot:\n%+v", rreq, newRREQ)
 	}
 }
+
+func TestNewRREP(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    protocol.RREPOpts
+		want    *protocol.RREP
+		wantErr bool
+	}{
+		{
+			name:    "empty opts, want err",
+			opts:    protocol.RREPOpts{},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "invalid SrcIP (IPv6), want err",
+			opts: protocol.RREPOpts{
+				HeaderOpts: protocol.HeaderOpts{
+					MsgType:   protocol.RREPMsgType,
+					SrcIP:     netip.MustParseAddr("::1"),
+					DstIP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+					SrcID:     1,
+					DstID:     2,
+					Timestamp: 3,
+					TTL:       4,
+				},
+				Lifetime: 60,
+				DstSeq:   100,
+				HopCount: 5,
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "invalid DstIP (IPv6), want err",
+			opts: protocol.RREPOpts{
+				HeaderOpts: protocol.HeaderOpts{
+					MsgType:   protocol.RREPMsgType,
+					SrcIP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+					DstIP:     netip.MustParseAddr("::1"),
+					SrcID:     1,
+					DstID:     2,
+					Timestamp: 3,
+					TTL:       4,
+				},
+				Lifetime: 60,
+				DstSeq:   100,
+				HopCount: 5,
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "normal RREP",
+			opts: protocol.RREPOpts{
+				HeaderOpts: protocol.HeaderOpts{
+					MsgType:   protocol.RREPMsgType,
+					SrcIP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+					DstIP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+					SrcID:     1,
+					DstID:     2,
+					Timestamp: 3,
+					TTL:       4,
+				},
+				Lifetime: 60,
+				DstSeq:   100,
+				HopCount: 5,
+			},
+			want: &protocol.RREP{
+				Header: protocol.Header{
+					MsgType:   protocol.RREPMsgType,
+					SrcIP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+					DstIP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+					SrcID:     1,
+					DstID:     2,
+					Timestamp: 3,
+					TTL:       4,
+				},
+				Lifetime: 60,
+				DstSeq:   100,
+				HopCount: 5,
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, gotErr := protocol.NewRREP(tt.opts)
+			if gotErr != nil {
+				if !tt.wantErr {
+					t.Errorf("NewRREP() failed: %v", gotErr)
+				}
+				return
+			}
+			if tt.wantErr {
+				t.Errorf("NewRREP() succeeded unexpectedly:\ngot %v\nwant %v\nwant err = %t",
+					got, tt.want, tt.wantErr)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("NewRREP() failed:\ngot:  %+v\nwant: %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRREP_RoundTrip(t *testing.T) {
+	rrep, err := protocol.NewRREP(protocol.RREPOpts{
+		HeaderOpts: protocol.HeaderOpts{
+			MsgType:   protocol.RREPMsgType,
+			SrcIP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+			DstIP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+			SrcID:     1,
+			DstID:     2,
+			Timestamp: 3,
+			TTL:       4,
+		},
+		Lifetime: 60,
+		DstSeq:   100,
+		HopCount: 5,
+	})
+	if err != nil {
+		t.Fatalf("NewRREP unexpected fail: %s", err)
+	}
+
+	data, err := rrep.MarshalBinary()
+	if err != nil {
+		t.Fatalf("MarshalBinary unexpected fail: %s", err)
+	}
+
+	if len(data) != protocol.RREPSize {
+		t.Fatalf("marshal size mismatch: got %d, want %d", len(data), protocol.RREPSize)
+	}
+
+	newRREP := &protocol.RREP{}
+	err = newRREP.UnmarshalBinary(data)
+	if err != nil {
+		t.Fatalf("UnmarshalBinary unexpected fail: %s", err)
+	}
+
+	if !reflect.DeepEqual(rrep, newRREP) {
+		t.Fatalf("round trip failed:\nwant:\n%+v\ngot:\n%+v", rrep, newRREP)
+	}
+}
