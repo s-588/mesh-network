@@ -245,13 +245,91 @@ func (m *HELLO) UnmarshalBinary(data []byte) error {
 }
 
 // RREQ is a message request that send to find route for specic node.
-type RREQ struct{
+type RREQ struct {
 	Header
 
-	SrcSeq 	uint32 // Counter increamented with each send message, need to avoid duplicates.
-	DstSeq uint32 // Counter for accepting RREP with DstSeq non less than this.
-	HopCount uint8 // Count of hops to destination.
+	SrcSeq      uint32 // Counter increamented with each send message, need to avoid duplicates.
+	DstSeq      uint32 // Counter for accepting RREP with DstSeq non less than this.
+	HopCount    uint8  // Count of hops to destination.
 	BroadcastID uint64 // SrcSeq + DstSeq to avoid duplicates.
+}
+
+type RREQOpts struct {
+	HeaderOpts
+
+	SrcSeq   uint32
+	DstSeq   uint32
+	HopCount uint8
+}
+
+// NewRREQ creates a pointer to an RREQ struct.
+// Returns an error if Header fields are invalid.
+func NewRREQ(opts RREQOpts) (*RREQ, error) {
+	header, err := NewHeader(opts.HeaderOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	rreq := &RREQ{
+		Header:      *header,
+		SrcSeq:      opts.SrcSeq,
+		DstSeq:      opts.DstSeq,
+		HopCount:    opts.HopCount,
+		BroadcastID: uint64(opts.SrcSeq + opts.DstSeq),
+	}
+
+	return rreq, nil
+}
+
+func (m *RREQ) MarshalBinary() ([]byte, error) {
+	headerBytes, err := m.Header.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]byte, RREQSize) // will be RREQSize
+	copy(result, headerBytes)
+
+	offset := len(headerBytes)
+
+	binary.BigEndian.PutUint32(result[offset:], m.SrcSeq)
+	offset += 4
+
+	binary.BigEndian.PutUint32(result[offset:], m.DstSeq)
+	offset += 4
+
+	result[offset] = m.HopCount
+	offset++
+
+	binary.BigEndian.PutUint64(result[offset:], m.BroadcastID)
+
+	return result, nil
+}
+
+func (m *RREQ) UnmarshalBinary(data []byte) error {
+	if len(data) != RREQSize {
+		return fmt.Errorf("invalid RREQ size, got %d, want %d", len(data), RREQSize)
+	}
+
+	err := m.Header.UnmarshalBinary(data[:HeaderSize])
+	if err != nil {
+		return err
+	}
+
+	offset := HeaderSize
+
+	m.SrcSeq = binary.BigEndian.Uint32(data[offset:])
+	offset += 4
+
+	m.DstSeq = binary.BigEndian.Uint32(data[offset:])
+	offset += 4
+
+	m.HopCount = data[offset]
+	offset++
+
+	m.BroadcastID = binary.BigEndian.Uint64(data[offset:])
+
+	return nil
 }
 
 // RREP is a message reply for RREQ with data of founded node.
