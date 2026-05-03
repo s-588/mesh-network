@@ -413,10 +413,74 @@ func (m *RREP) UnmarshalBinary(data []byte) error {
 }
 
 // RERR is a message that notifies node that something off.
-type RERR struct{
+type RERR struct {
 	Header
 
-	ErrCode ErrorCode // Code of the error.
+	ErrCode          ErrorCode // Code of the error.
+	UnreachableDstID uint64    // Unreachable node ID
+}
+
+type RERROpts struct {
+	HeaderOpts
+
+	ErrCode          ErrorCode
+	UnreachableDstID uint64
+}
+
+// NewRERR creates a pointer to an RERR struct.
+// Returns an error if Header fields are invalid.
+func NewRERR(opts RERROpts) (*RERR, error) {
+	header, err := NewHeader(opts.HeaderOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	rerr := &RERR{
+		Header:           *header,
+		ErrCode:          opts.ErrCode,
+		UnreachableDstID: opts.UnreachableDstID,
+	}
+
+	return rerr, nil
+}
+
+func (m *RERR) MarshalBinary() ([]byte, error) {
+	headerBytes, err := m.Header.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]byte, RERRSize)
+	copy(result, headerBytes)
+
+	offset := len(headerBytes)
+
+	result[offset] = byte(m.ErrCode)
+	offset++
+
+	binary.BigEndian.PutUint64(result[offset:], m.UnreachableDstID)
+
+	return result, nil
+}
+
+func (m *RERR) UnmarshalBinary(data []byte) error {
+	if len(data) != RERRSize {
+		return fmt.Errorf("invalid RERR size, got %d, want %d", len(data), RERRSize)
+	}
+
+	err := m.Header.UnmarshalBinary(data[:HeaderSize])
+	if err != nil {
+		return err
+	}
+
+	offset := HeaderSize
+
+	m.ErrCode = ErrorCode(data[offset])
+	offset++
+
+	m.UnreachableDstID = binary.BigEndian.Uint64(data[offset:])
+
+	return nil
 }
 
 // DATA is a message that contain user data.
