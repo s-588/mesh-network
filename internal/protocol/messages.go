@@ -59,7 +59,6 @@ const (
 // Header struct contains general fields that all other messages must have.
 // If the Header struct need to be changed HeaderSize constanta must be updated.
 type Header struct {
-	Length    uint16     // The length of the full message.
 	MsgType   MsgType    // Type of the message.
 	Timestamp uint64     // Timestamp when message was send.
 	TTL       uint8      // Hops remaining before discard (max 255). Default is 32.
