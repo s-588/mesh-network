@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -16,6 +17,7 @@ type Config struct {
 }
 
 type AppConfig struct {
+	Ifaces []string
 }
 
 type LogConfig struct {
@@ -29,9 +31,11 @@ func NewConfig() (Config, error) {
 		return Config{}, fmt.Errorf("can't load envs: %w", err)
 	}
 
+	appCfg, err := parseAppConfig()
+
 	return Config{
 		LogConfig: parseLogConfig(),
-		AppConfig: parseAppConfig(),
+		AppConfig: appCfg,
 	}, nil
 }
 
@@ -60,6 +64,22 @@ func parseLogLevel() string {
 	return level
 }
 
-func parseAppConfig() AppConfig {
-	return AppConfig{}
+func parseAppConfig() (AppConfig,error) {
+	ifaces,err := parseIfaces()
+	if err != nil {
+		return AppConfig{}, err
+	}
+	return AppConfig{
+		Ifaces: ifaces,
+	},nil
+}
+
+func parseIfaces()([]string,error){
+	ifaces := make([]string,0)
+	ifaceStr := os.Getenv("INTERFACE")
+	if ifaceStr == ""{
+		return nil, fmt.Errorf("Interface is not specified")
+	}
+	ifaces = strings.Split(strings.ReplaceAll(ifaceStr," ",""),",")
+	return ifaces, nil
 }
