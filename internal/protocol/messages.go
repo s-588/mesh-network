@@ -1,11 +1,14 @@
 package protocol
 
 import (
+	"encoding/binary"
+	"fmt"
 	"net/netip"
 )
 
 type MsgType uint8
 
+// IsValid return true if MsgType exists.
 func (m MsgType) IsValid() bool {
 	switch m {
 	case HELLOMsgType, RREQMsgType, RREPMsgType, RERRMsgType, DATAMsgType:
@@ -100,6 +103,7 @@ func NewHeader(opts HeaderOpts) (*Header, error) {
 	return h, nil
 }
 
+// MarshalBinary encodes Header into slice of bytes.
 func (h *Header) MarshalBinary() ([]byte, error) {
 	if !h.SrcIP.IsValid() || !h.DstIP.IsValid() {
 		return nil, fmt.Errorf("invalid IP address")
@@ -137,6 +141,7 @@ func (h *Header) MarshalBinary() ([]byte, error) {
 	return result, nil
 }
 
+// UnmarshalBinary decodes given data into Header.
 func (h *Header) UnmarshalBinary(data []byte) error {
 	if len(data) != HeaderSize {
 		return fmt.Errorf("invalid header size, got %d, want %d", len(data), HeaderSize)
@@ -179,36 +184,28 @@ type HELLO struct {
 }
 
 type HELLOOpts struct {
-    HeaderOpts            
-    Port          uint16  
+	HeaderOpts
+	Port uint16
 }
 
 // NewHELLO creates a pointer to a HELLO struct.
 // Returns an error if Header fields are invalid or Port is zero.
 func NewHELLO(opts HELLOOpts) (*HELLO, error) {
-    header, err := NewHeader(opts.HeaderOpts)
-    if err != nil {
-        return nil, err
-    }
+	header, err := NewHeader(opts.HeaderOpts)
+	if err != nil {
+		return nil, err
+	}
 
-    if opts.Port == 0 {
-        return nil, fmt.Errorf("HELLO Port must be non‑zero")
-    }
+	if opts.Port == 0 {
+		return nil, fmt.Errorf("HELLO Port must be non‑zero")
+	}
 
-    hello := &HELLO{
-        Header: Header{
-            MsgType:   header.MsgType,
-            Timestamp: header.Timestamp,
-            TTL:       header.TTL,
-            SrcID:     header.SrcID,
-            DstID:     header.DstID,
-            SrcIP:     header.SrcIP,
-            DstIP:     header.DstIP,
-        },
-        Port: opts.Port,
-    }
+	hello := &HELLO{
+		Header: *header,
+		Port:   opts.Port,
+	}
 
-    return hello, nil
+	return hello, nil
 }
 
 // MarshalBinary encodes HELLO into a byte slice.
@@ -218,7 +215,6 @@ func (m *HELLO) MarshalBinary() ([]byte, error) {
 		return nil, err
 	}
 
-	// Ensure result length matches HELLOSize.
 	result := make([]byte, HELLOSize)
 	copy(result, headerBytes)
 
@@ -240,7 +236,7 @@ func (m *HELLO) UnmarshalBinary(data []byte) error {
 		return err
 	}
 
-	m.Port = binary.BigEndian.Uint16(data[HeaderSize:HeaderSize+2])
+	m.Port = binary.BigEndian.Uint16(data[HeaderSize : HeaderSize+2])
 	return nil
 }
 
@@ -281,6 +277,7 @@ func NewRREQ(opts RREQOpts) (*RREQ, error) {
 	return rreq, nil
 }
 
+// MarshalBinary encodes RREQ into a byte slice.
 func (m *RREQ) MarshalBinary() ([]byte, error) {
 	headerBytes, err := m.Header.MarshalBinary()
 	if err != nil {
@@ -306,6 +303,7 @@ func (m *RREQ) MarshalBinary() ([]byte, error) {
 	return result, nil
 }
 
+// UnmarshalBinary decodes given data into RREQ.
 func (m *RREQ) UnmarshalBinary(data []byte) error {
 	if len(data) != RREQSize {
 		return fmt.Errorf("invalid RREQ size, got %d, want %d", len(data), RREQSize)
@@ -367,6 +365,7 @@ func NewRREP(opts RREPOpts) (*RREP, error) {
 	return rrep, nil
 }
 
+// MarshalBinary encodes RREP into a byte slice.
 func (m *RREP) MarshalBinary() ([]byte, error) {
 	headerBytes, err := m.Header.MarshalBinary()
 	if err != nil {
@@ -389,6 +388,7 @@ func (m *RREP) MarshalBinary() ([]byte, error) {
 	return result, nil
 }
 
+// UnmarshalBinary decodes given data into RREP.
 func (m *RREP) UnmarshalBinary(data []byte) error {
 	if len(data) != RREPSize {
 		return fmt.Errorf("invalid RREP size, got %d, want %d", len(data), RREPSize)
@@ -444,6 +444,7 @@ func NewRERR(opts RERROpts) (*RERR, error) {
 	return rerr, nil
 }
 
+// MarshalBinary encodes RERR into a byte slice.
 func (m *RERR) MarshalBinary() ([]byte, error) {
 	headerBytes, err := m.Header.MarshalBinary()
 	if err != nil {
@@ -463,6 +464,7 @@ func (m *RERR) MarshalBinary() ([]byte, error) {
 	return result, nil
 }
 
+// UnmarshalBinary decodes given data into RERR.
 func (m *RERR) UnmarshalBinary(data []byte) error {
 	if len(data) != RERRSize {
 		return fmt.Errorf("invalid RERR size, got %d, want %d", len(data), RERRSize)
@@ -525,6 +527,7 @@ func NewDATA(opts DATAOpts) (*DATA, error) {
 	return data, nil
 }
 
+// MarshalBinary encodes DATA into a byte slice.
 func (msg *DATA) MarshalBinary() ([]byte, error) {
 	result := make([]byte, 0, msg.Size())
 
@@ -543,6 +546,7 @@ func (msg *DATA) MarshalBinary() ([]byte, error) {
 	return result, nil
 }
 
+// UnmarshalBinary decodes given data into DATA.
 func (msg *DATA) UnmarshalBinary(data []byte) error {
 	minLen := HeaderSize + 4 // header + SeqNum
 	if len(data) < minLen {
