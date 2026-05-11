@@ -59,6 +59,14 @@ const (
 		8 // UnreachableDstID uint64
 )
 
+// Message interface implement methods for general functions that will send messages.
+// SetHeader function is required because SrcIP must be set according to interface IP before sending.
+type Message interface {
+	SetHeader(Header)
+	MarshalBinary() ([]byte, error)
+	UnmarshalBinary(data []byte) error
+}
+
 // Header struct contains general fields that all other messages must have.
 // If the Header struct need to be changed HeaderSize constanta must be updated.
 type Header struct {
@@ -208,6 +216,10 @@ func NewHELLO(opts HELLOOpts) (*HELLO, error) {
 	return hello, nil
 }
 
+func (m *HELLO) SetHeader(h Header) {
+	m.Header = h
+}
+
 // MarshalBinary encodes HELLO into a byte slice.
 func (m *HELLO) MarshalBinary() ([]byte, error) {
 	headerBytes, err := m.Header.MarshalBinary()
@@ -275,6 +287,10 @@ func NewRREQ(opts RREQOpts) (*RREQ, error) {
 	}
 
 	return rreq, nil
+}
+
+func (m *RREQ) SetHeader(h Header) {
+	m.Header = h
 }
 
 // MarshalBinary encodes RREQ into a byte slice.
@@ -365,6 +381,10 @@ func NewRREP(opts RREPOpts) (*RREP, error) {
 	return rrep, nil
 }
 
+func (m *RREP) SetHeader(h Header) {
+	m.Header = h
+}
+
 // MarshalBinary encodes RREP into a byte slice.
 func (m *RREP) MarshalBinary() ([]byte, error) {
 	headerBytes, err := m.Header.MarshalBinary()
@@ -442,6 +462,10 @@ func NewRERR(opts RERROpts) (*RERR, error) {
 	}
 
 	return rerr, nil
+}
+
+func (m *RERR) SetHeader(h Header) {
+	m.Header = h
 }
 
 // MarshalBinary encodes RERR into a byte slice.
@@ -525,6 +549,10 @@ func NewDATA(opts DATAOpts) (*DATA, error) {
 	}
 
 	return data, nil
+}
+
+func (m *DATA) SetHeader(h Header) {
+	m.Header = h
 }
 
 // MarshalBinary encodes DATA into a byte slice.
