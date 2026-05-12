@@ -1,83 +1,74 @@
 package main
 
 import (
+	"bufio"
 	"context"
-	"errors"
 	"fmt"
-	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
+	"strconv"
+	"strings"
 
-	"github.com/songgao/water"
-	"golang.org/x/sync/errgroup"
+	"github.com/s-588/mesh-network/internal/config"
+	"github.com/s-588/mesh-network/internal/logger"
+	"github.com/s-588/mesh-network/internal/routing"
+	"github.com/s-588/mesh-network/internal/socket"
 )
 
 func main() {
-	tun := setupTUN()
-	slog.Info("TUN iface created", "name", tun.Name())
-	defer tun.Close()
-	
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	errGroup, ctx := errgroup.WithContext(ctx)
-	errGroup.Go(
-		func() error {
-			return readTUN(ctx, tun)
-		},
-	)
-	msgChan := make(chan []byte, 1)
-	errGroup.Go(
-		func() error {
-			return writeTUN(ctx, tun, msgChan)
-		},
-	)
-
-	if err := errGroup.Wait(); err != nil{
-		if errors.Is(err, context.Canceled){
-		slog.Error("goroutine in errgroup return a error", "error", err)
-		}
+	cfg, err := config.NewConfig()
+	if err != nil {
+		panic(err)
 	}
-	slog.Info("shutting down")
-}
 
-func setupTUN() *water.Interface{
-	cfg := water.Config{
-	DeviceType: water.TUN,			
+	err = logger.SetupSlog(cfg)
+	if err != nil {
+		panic(err)
 	}
-	tun, err := water.New(cfg)
-	if err != nil{
-		panic(fmt.Errorf("can't create TUN interface: %v", err))
-	}
-	return tun
-}
 
-func readTUN(ctx context.Context, tun *water.Interface) error{
+	t, err := socket.NewSocket(cfg.AppConfig)
+	if err != nil {
+		panic(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go t.Start(ctx)
+	go t.StartHelloSender(ctx)
+	go t.ProcessMessages(ctx)
+
+	fmt.Println("Node started. Type 'help' for commands.")
+
+	scanner := bufio.NewScanner(os.Stdin)
 	for {
-		select{
-		case <-ctx.Done():
-			return ctx.Err()
+		fmt.Print("> ")
+		if !scanner.Scan() {
+		}
+
+		line := scanner.Text()
+		parts := strings.Fields(line)
+		if len(parts) == 0 {
+			continue
+		}
+
+		command := parts[0]
+		switch command {
+		case "broadcast":
+			t.Broadcast([]byte(parts[1]))
+		case "send":
+			if len(parts) < 3 {
+				fmt.Println("Usage: send <dstID> <message>")
+				continue
+			}
+			dstID, _ := strconv.ParseUint(parts[1], 10, 64)
+			payload := strings.Join(parts[2:], " ")
+			t.SendData(dstID, []byte(payload))
+		case "status":
+			fmt.Printf("Neighbours table:\n%s\n", &routing.NeighboursTable)
+			fmt.Printf("Routing table:\n%s\n", &routing.RoutesTable)
+		case "exit":
+			fmt.Println("Exiting...")
+			return
 		default:
-			b := make([]byte,1024)
-			_, err := tun.Read(b)
-			if err != nil{
-				return fmt.Errorf("can't read from TUN iface: %v",err)
-			}
-		}
-	}
-}
-
-func writeTUN(ctx context.Context, tun *water.Interface, msg <- chan []byte) error{
-	for {
-		select{
-		case <-ctx.Done():
-			return ctx.Err()
-		case m := <- msg:
-			_, err := tun.Write(m)
-			if err != nil{
-				return fmt.Errorf("can't write to TUN iface: %v",err)
-			}
+			fmt.Println("Unknown command. Use: send, status, exit")
 		}
 	}
 }
