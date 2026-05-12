@@ -26,7 +26,13 @@ func SetupSlog(cfg config.Config) error {
 		Level: slog.LevelDebug,
 	}), slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		AddSource: cfg.LogConfig.Level == "DEBUG",
-		Level:     lvl,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == "level" || a.Key == "time" {
+				return slog.Attr{}
+			}
+			return a
+		},
+		Level: lvl,
 	}))
 	slog.SetDefault(slog.New(h))
 	return nil
