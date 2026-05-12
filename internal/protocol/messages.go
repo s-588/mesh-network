@@ -28,8 +28,7 @@ const (
 
 const (
 	// HeaderSize is how many bytes take all Header fields
-	HeaderSize = 2 + // Length	 uint16
-		1 + // MsgType   uint8
+	HeaderSize = 1 + // MsgType   uint8
 		8 + // Timestamp uint64
 		1 + // TTL       uint8
 		8 + // SrcID     uint64
@@ -534,18 +533,20 @@ type DATAOpts struct {
 // NewDATA creates a pointer to a DATA struct.
 // Returns an error if Header fields are invalid.
 func NewDATA(opts DATAOpts) (*DATA, error) {
-	if opts.Payload == nil {
-		return nil, fmt.Errorf("payload can't be nil")
-	}
 	header, err := NewHeader(opts.HeaderOpts)
 	if err != nil {
 		return nil, err
 	}
 
+	payload := make([]byte, 0)
+	if opts.Payload != nil {
+		payload = append(payload, opts.Payload...)
+	}
+
 	data := &DATA{
 		Header:  *header,
 		SeqNum:  opts.SeqNum,
-		Payload: opts.Payload,
+		Payload: payload,
 	}
 
 	return data, nil

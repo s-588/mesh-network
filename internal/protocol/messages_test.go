@@ -129,7 +129,7 @@ func TestNewHELLO(t *testing.T) {
 	}{
 		{
 			name:    "empty opts, want err",
-			opts:    protocol.HELLOOpts{}, 
+			opts:    protocol.HELLOOpts{},
 			want:    nil,
 			wantErr: true,
 		},
@@ -138,7 +138,7 @@ func TestNewHELLO(t *testing.T) {
 			opts: protocol.HELLOOpts{
 				HeaderOpts: protocol.HeaderOpts{
 					MsgType:   protocol.HELLOMsgType,
-					SrcIP:     netip.MustParseAddr("::1"), 
+					SrcIP:     netip.MustParseAddr("::1"),
 					DstIP:     netip.AddrFrom4([4]byte{128, 0, 0, 1}),
 					SrcID:     1,
 					DstID:     2,
@@ -156,7 +156,7 @@ func TestNewHELLO(t *testing.T) {
 				HeaderOpts: protocol.HeaderOpts{
 					MsgType:   protocol.HELLOMsgType,
 					SrcIP:     netip.AddrFrom4([4]byte{128, 0, 0, 1}),
-					DstIP:     netip.MustParseAddr("::1"), 
+					DstIP:     netip.MustParseAddr("::1"),
 					SrcID:     1,
 					DstID:     2,
 					Timestamp: 3,
@@ -706,9 +706,9 @@ func TestNewDATA(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "empty opts, want err",
+			name:    "empty opts",
 			opts:    protocol.DATAOpts{},
-			want:    nil,
+			want:    &protocol.DATA{},
 			wantErr: true,
 		},
 		{
@@ -716,7 +716,7 @@ func TestNewDATA(t *testing.T) {
 			opts: protocol.DATAOpts{
 				HeaderOpts: protocol.HeaderOpts{
 					MsgType:   protocol.DATAMsgType,
-					SrcIP:     netip.MustParseAddr("::1"), // IPv6
+					SrcIP:     netip.MustParseAddr("::1"),
 					DstIP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
 					SrcID:     1,
 					DstID:     2,
@@ -822,8 +822,20 @@ func TestNewDATA(t *testing.T) {
 				SeqNum:  100,
 				Payload: nil,
 			},
-			want:    nil,
-			wantErr: true,
+			want: &protocol.DATA{
+				Header: protocol.Header{
+					MsgType:   protocol.DATAMsgType,
+					SrcIP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+					DstIP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+					SrcID:     1,
+					DstID:     2,
+					Timestamp: 3,
+					TTL:       4,
+				},
+				SeqNum:  100,
+				Payload: []byte{},
+			},
+			wantErr: false,
 		},
 	}
 
