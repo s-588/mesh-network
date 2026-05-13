@@ -160,7 +160,7 @@ func (t *Socket) handleRREQ(rreq *protocol.RREQ, srcAddr *net.UDPAddr, iface str
 		NextHopID:   header.SrcID, // sending back to someone who sent or forwarded message
 		NextHopAddr: addr,
 		LastUpdate:  time.Now(),
-		Lifetime:    time.Now().Add(30 * time.Second), // TODO: change to config value
+		Lifetime:    time.Now().Add(time.Second * time.Duration(t.cfg.Lifetime)),
 		Interface:   iface,
 	}
 	routing.UpdateRoute(reverseRoute)
@@ -340,7 +340,7 @@ func (t *Socket) SendRREQ(targetID uint64) {
 			SrcIP:     srcIP,
 			DstIP:     netip.IPv4Unspecified(),
 			Timestamp: uint64(time.Now().UnixMilli()),
-			TTL:       10, // TODO: change to config value
+			TTL:       t.cfg.TTL,
 		},
 		SrcSeq:   currentSeq,
 		DstSeq:   0,
@@ -387,9 +387,9 @@ func (t *Socket) SendRREP(rreq *protocol.RREQ, dst netip.AddrPort) {
 			SrcIP:     srcIP,
 			DstIP:     dst.Addr(),
 			Timestamp: uint64(time.Now().UnixMilli()),
-			TTL:       10, // TODO: change to config value
+			TTL:       t.cfg.TTL,
 		},
-		Lifetime: 3600, // TODO: change to config value
+		Lifetime: t.cfg.Lifetime,
 		DstSeq:   mySeq,
 		HopCount: 0, // Start with 0, intermediary nodes will increment
 	}
