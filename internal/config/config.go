@@ -34,6 +34,7 @@ var (
 
 // Config struct contain all user variables under the users control
 type Config struct {
+	IsDaemon bool
 	LogConfig
 	AppConfig
 }
@@ -58,9 +59,9 @@ type LogConfig struct {
 func NewConfig() (Config, error) {
 	cfg := defaultConfig
 
-	if err := godotenv.Load(); err != nil {
-		slog.Warn("can't load environment variables", "error", err)
-	}
+	_ = godotenv.Load()
+
+	flagIsDaemon := flag.Bool("daemon", false, "Start without GUI as daemon. You can't be abble to do anything, only view logs")
 
 	flagPort := flag.Uint("port", 0, "Port to listen on")
 	flagInterface := flag.String("interface", "", "One or multiple interfaces to listen on. Must be set with flag or env variable")
@@ -75,6 +76,10 @@ func NewConfig() (Config, error) {
 	err := applyEnv(&cfg)
 	if err != nil {
 		return cfg, fmt.Errorf("apply environment variables: %w", err)
+	}
+
+	if *flagIsDaemon != false {
+		cfg.IsDaemon = bool(*flagIsDaemon)
 	}
 
 	if *flagPort != 0 {
@@ -183,4 +188,29 @@ func applyEnv(cfg *Config) error {
 	}
 
 	return nil
+}
+
+func (cfg *Config) String() string {
+	sb := strings.Builder{}
+	sb.WriteString("Configuration:\n")
+	sb.WriteString(fmt.Sprintf("\tIsDaemon: %t\n", cfg.IsDaemon))
+
+	sb.WriteString("\tApplication configuration:\n")
+	sb.WriteString(fmt.Sprintf("\t\tID: %d\n", cfg.ID))
+	sb.WriteString(fmt.Sprintf("\t\tPort: %d\n", cfg.Port))
+	sb.WriteString("\t\tInterfaces: ")
+	for i, iface := range cfg.Ifaces {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(iface)
+	}
+	sb.WriteString("\n")
+	sb.WriteString(fmt.Sprintf("\t\tTTL: %d\n", cfg.TTL))
+	sb.WriteString(fmt.Sprintf("\t\tLifetime: %d seconds\n", cfg.Lifetime))
+
+	sb.WriteString("\tLogger configuration:\n")
+	sb.WriteString(fmt.Sprintf("\t\tLevel: %s\n", cfg.Level))
+	sb.WriteString(fmt.Sprintf("\t\tLogFile: %s\n", cfg.LogFile))
+	return sb.String()
 }

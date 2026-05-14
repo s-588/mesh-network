@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -25,6 +26,9 @@ func main() {
 		panic(err)
 	}
 
+	fmt.Fprintln(os.Stdout, "Starting node")
+	fmt.Fprintf(os.Stdout, "Using %s", cfg.String())
+
 	t, err := socket.NewSocket(cfg.AppConfig)
 	if err != nil {
 		panic(err)
@@ -35,11 +39,16 @@ func main() {
 	go t.StartHelloSender(ctx)
 	go t.ProcessMessages(ctx)
 
-	fmt.Println("Node started. Type 'help' for commands.")
+	if cfg.IsDaemon {
+		slog.Info("Node started as daemon")
+		<-ctx.Done()
+		return
+	}
+
+	fmt.Fprintln(os.Stdout, "Node started. Type 'help' for commands.")
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
-		fmt.Print("> ")
 		if !scanner.Scan() {
 		}
 
@@ -51,24 +60,22 @@ func main() {
 
 		command := parts[0]
 		switch command {
-		case "broadcast":
-			t.Broadcast([]byte(parts[1]))
 		case "send":
 			if len(parts) < 3 {
-				fmt.Println("Usage: send <dstID> <message>")
+				fmt.Fprintln(os.Stdout, "Usage: send <dstID> <message>")
 				continue
 			}
 			dstID, _ := strconv.ParseUint(parts[1], 10, 64)
 			payload := strings.Join(parts[2:], " ")
 			t.SendData(dstID, []byte(payload))
 		case "status":
-			fmt.Printf("Neighbours table:\n%s\n", &routing.NeighboursTable)
-			fmt.Printf("Routing table:\n%s\n", &routing.RoutesTable)
+			fmt.Fprintf(os.Stdout, "Neighbours table:\n%s\n", &routing.NeighboursTable)
+			fmt.Fprintf(os.Stdout, "Routing table:\n%s\n", &routing.RoutesTable)
 		case "exit":
-			fmt.Println("Exiting...")
+			fmt.Fprintln(os.Stdout, "Exiting...")
 			return
 		default:
-			fmt.Println("Unknown command. Use: send, status, exit")
+			fmt.Fprintln(os.Stdout, "Unknown command. Use: send, status, exit")
 		}
 	}
 }

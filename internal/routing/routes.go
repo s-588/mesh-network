@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/netip"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,19 @@ func NewTable[T any]() Table[T] {
 	}
 }
 
+// Helper to format AddrPort as string
+func addrPortString(ap netip.AddrPort) string {
+	return ap.String()
+}
+
+// Helper to format time as relative string
+func timeString(tm time.Time) string {
+	if tm.IsZero() {
+		return "never"
+	}
+	return tm.Format(time.DateTime)
+}
+
 func (t *Table[T]) String() string {
 	t.rw.RLock()
 	defer t.rw.RUnlock()
@@ -29,18 +43,41 @@ func (t *Table[T]) String() string {
 		return "<empty>"
 	}
 
-	ids := make([]uint64, 0, len(t.m))
-	for id := range t.m {
-		ids = append(ids, id)
+	keys := make([]uint64, 0, len(t.m))
+	for k := range t.m {
+		keys = append(keys, k)
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 
-	var b strings.Builder
-	b.WriteString("ID\tVALUE\n")
-	for _, id := range ids {
-		fmt.Fprintf(&b, "%d\t%+v\n", id, t.m[id])
+	var sb strings.Builder
+	sb.Grow(512 * len(keys))
+
+	for _, id := range keys {
+		entry := t.m[id]
+		switch v := any(&entry).(type) {
+		case *NeighboursEntry:
+			sb.WriteString(fmt.Sprintf("ID: %d | Addr: %s | LastSeen: %s\n",
+				v.ID, addrPortString(v.Addr), timeString(v.LastSeen)))
+		case *RouteEntry:
+			precursors := make([]string, 0, len(v.Precursors))
+			for p := range v.Precursors {
+				precursors = append(precursors, strconv.FormatUint(p, 10))
+			}
+			sort.Strings(precursors)
+			precStr := strings.Join(precursors, ", ")
+			if precStr == "" {
+				precStr = "none"
+			}
+			sb.WriteString(fmt.Sprintf("DstID: %d | Seq: %d | Hops: %d | NextHop: %d (%s) | Lifetime: %s | LastUpdate: %s | Precursors: [%s] | Iface: %s\n",
+				v.DstID, v.DstSeq, v.HopCount, v.NextHopID, addrPortString(v.NextHopAddr),
+				timeString(v.Lifetime), timeString(v.LastUpdate), precStr, v.Interface))
+		default:
+			// Fallback for unknown types or future additions
+			sb.WriteString(fmt.Sprintf("ID: %d | %+v\n", id, entry))
+		}
 	}
-	return b.String()
+
+	return sb.String()
 }
 
 func (t *Table[T]) Get(id uint64) (T, bool) {
