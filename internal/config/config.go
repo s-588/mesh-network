@@ -19,11 +19,12 @@ import (
 var (
 	defaultConfig = Config{
 		AppConfig: AppConfig{
-			Port:     6040,
-			Ifaces:   []string{"eth0"},
-			ID:       1234,
-			TTL:      20,
-			Lifetime: 30,
+			Port:          6040,
+			Ifaces:        []string{"eth0"},
+			ID:            1234,
+			TTL:           20,
+			Lifetime:      30,
+			HelloInterval: 5,
 		},
 		LogConfig: LogConfig{
 			Level:   "INFO",
@@ -41,11 +42,12 @@ type Config struct {
 
 // AppConfig struct contain variables that belongs to routing or protocol logic
 type AppConfig struct {
-	ID       uint64
-	Port     uint16
-	Ifaces   []string
-	TTL      uint8
-	Lifetime uint32 // lifetime for RREP and route table in seconds
+	ID            uint64
+	Port          uint16
+	Ifaces        []string
+	TTL           uint8
+	Lifetime      uint32 // lifetime for RREP and route table in seconds
+	HelloInterval int
 }
 
 // LogConfig struct contain variables for logger
@@ -68,6 +70,7 @@ func NewConfig() (Config, error) {
 	flagID := flag.Uint64("id", 0, "ID of this node. Must be set with flag or env variable")
 	flagTTL := flag.Uint("ttl", 0, "Time To Live for messages")
 	flagLifetime := flag.Uint("lifetime", 0, "Lifetime of messages and entrys in route table")
+	flagHelloInterval := flag.Uint("hello-interval", 0, "Interval in which HELLO messages will be broadcasted")
 
 	flagLogFile := flag.String("log_file", "", "Log filename or full path")
 	flagLogLevel := flag.String("log_level", "", "Level of logs that will be displayed")
@@ -101,6 +104,10 @@ func NewConfig() (Config, error) {
 
 	if *flagLifetime != 0 {
 		cfg.Lifetime = uint32(*flagLifetime)
+	}
+
+	if *flagHelloInterval != 0 {
+		cfg.HelloInterval = int(*flagHelloInterval)
 	}
 
 	if *flagLogFile != "" {
@@ -164,6 +171,14 @@ func applyEnv(cfg *Config) error {
 			return fmt.Errorf("parse LIFETIME: %w", err)
 		}
 		cfg.Lifetime = uint32(v)
+	}
+
+	if s := os.Getenv("HELLO_INTERVAL"); s != "" {
+		v, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse HELLO_INTERVAL: %w", err)
+		}
+		cfg.HelloInterval = int(v)
 	}
 
 	if s := os.Getenv("LOG_FILE"); s != "" {
