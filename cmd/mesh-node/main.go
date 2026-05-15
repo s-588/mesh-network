@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -40,7 +39,7 @@ func main() {
 	go t.ProcessMessages(ctx)
 
 	if cfg.IsDaemon {
-		slog.Info("Node started as daemon")
+		fmt.Fprintf(os.Stdout, "Node started as daemon")
 		<-ctx.Done()
 		return
 	}
