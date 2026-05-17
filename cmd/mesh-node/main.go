@@ -35,8 +35,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go t.Start(ctx)
-	go t.StartHelloSender(ctx)
 	go t.ProcessMessages(ctx)
+	go t.StartHelloSender(ctx)
+	go t.StartNeighbourCollector(ctx)
 
 	if cfg.IsDaemon {
 		fmt.Fprintf(os.Stdout, "Node started as daemon")

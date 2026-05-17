@@ -2,6 +2,8 @@ package routing
 
 import (
 	"fmt"
+	"log/slog"
+	"maps"
 	"net/netip"
 	"sort"
 	"strconv"
@@ -56,8 +58,8 @@ func (t *Table[T]) String() string {
 		entry := t.m[id]
 		switch v := any(&entry).(type) {
 		case *NeighboursEntry:
-			sb.WriteString(fmt.Sprintf("ID: %d | Addr: %s | LastSeen: %s\n",
-				v.ID, addrPortString(v.Addr), timeString(v.LastSeen)))
+			sb.WriteString(fmt.Sprintf("ID: %d | Addr: %s | LastSeen: %s | Interface: %s\n",
+				v.ID, addrPortString(v.Addr), timeString(v.LastSeen), v.Interface))
 		case *RouteEntry:
 			precursors := make([]string, 0, len(v.Precursors))
 			for p := range v.Precursors {
@@ -87,6 +89,12 @@ func (t *Table[T]) Get(id uint64) (T, bool) {
 	return v, ok
 }
 
+func (t *Table[T]) Snapshot() map[uint64]T {
+	t.rw.RLock()
+	defer t.rw.RUnlock()
+	return maps.Clone(t.m)
+}
+
 func (t *Table[T]) Put(id uint64, v T) {
 	t.rw.Lock()
 	defer t.rw.Unlock()
@@ -100,9 +108,10 @@ func (t *Table[T]) Delete(id uint64) {
 }
 
 type NeighboursEntry struct {
-	ID       uint64
-	Addr     netip.AddrPort
-	LastSeen time.Time
+	ID        uint64
+	Addr      netip.AddrPort
+	LastSeen  time.Time
+	Interface string
 }
 
 type RouteEntry struct {
@@ -153,8 +162,18 @@ func UpdateRoute(newEntry RouteEntry) {
 
 	shouldUpdate := false
 	if newEntry.DstSeq > oldEntry.DstSeq {
+		slog.Debug("route is newer",
+			"old_dst_seq", oldEntry.DstSeq,
+			"new_dst_seq", newEntry.DstSeq,
+			"old_hops", oldEntry.HopCount,
+			"new_hops", newEntry.HopCount)
 		shouldUpdate = true
 	} else if newEntry.DstSeq == oldEntry.DstSeq && newEntry.HopCount < oldEntry.HopCount {
+		slog.Debug("route is better",
+			"old_dst_seq", oldEntry.DstSeq,
+			"new_dst_seq", newEntry.DstSeq,
+			"old_hops", oldEntry.HopCount,
+			"new_hops", newEntry.HopCount)
 		shouldUpdate = true
 	}
 
@@ -167,10 +186,38 @@ func UpdateRoute(newEntry RouteEntry) {
 }
 
 // UpdateNeighbour updates neighbour talbe with new HELLO
-func UpdateNeighbour(id uint64, addr netip.AddrPort) {
+func UpdateNeighbour(id uint64, addr netip.AddrPort, iface string) {
 	NeighboursTable.Put(id, NeighboursEntry{
-		ID:       id,
-		Addr:     addr,
-		LastSeen: time.Now(),
+		ID:        id,
+		Addr:      addr,
+		LastSeen:  time.Now(),
+		Interface: iface,
 	})
+}
+
+// FindNeighbourByAddr looks up a neighbor's ID using their IP address.
+func FindNeighbourByAddr(addr netip.Addr) (uint64, bool) {
+	NeighboursTable.rw.RLock()
+	defer NeighboursTable.rw.RUnlock()
+
+	for id, entry := range NeighboursTable.m {
+		if entry.Addr.Addr() == addr {
+			return id, true
+		}
+	}
+	return 0, false
+}
+
+// AddPrecursor registers a neighbor as a precursor for a specific destination route
+func AddPrecursor(routeDstID uint64, precursorID uint64) {
+	RoutesTable.rw.Lock()
+	defer RoutesTable.rw.Unlock()
+
+	if route, exists := RoutesTable.m[routeDstID]; exists {
+		if route.Precursors == nil {
+			route.Precursors = make(map[uint64]struct{})
+		}
+		route.Precursors[precursorID] = struct{}{}
+		RoutesTable.m[routeDstID] = route
+	}
 }
