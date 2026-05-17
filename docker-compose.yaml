@@ -1,0 +1,291 @@
+networks:
+  net-a:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.1.0/24
+
+  net-b:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.2.0/24
+
+  net-c:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.3.0/24
+
+  net-d:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.4.0/24
+
+services:
+
+  node1:
+    build: .
+    container_name: node1
+    networks:
+      net-a:
+        ipv4_address: 172.20.1.10
+      net-b:
+        ipv4_address: 172.20.2.14
+    environment:
+      - TZ=Europe/Moscow
+      - ID=1
+      - INTERFACE=eth0,eth1
+      - PORT=6040
+      - LOG_LEVEL=DEBUG
+    command: [ "./mesh-node" ]
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    stdin_open: true
+    tty: true
+    sysctls:
+      - net.ipv4.icmp_echo_ignore_broadcasts=0
+      - net.ipv4.conf.all.bc_forwarding=1
+      - net.ipv4.conf.default.bc_forwarding=1
+      - net.ipv4.conf.all.forwarding=1
+
+  node2:
+    build: .
+    container_name: node2
+    networks:
+      net-a:
+        ipv4_address: 172.20.1.12
+    environment:
+      - TZ=Europe/Moscow
+      - ID=2
+      - PORT=6040
+      - LOG_LEVEL=INFO
+    command: [ "./mesh-node" ]
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    stdin_open: true
+    tty: true
+    sysctls:
+      - net.ipv4.icmp_echo_ignore_broadcasts=0
+      - net.ipv4.conf.all.bc_forwarding=1
+      - net.ipv4.conf.default.bc_forwarding=1
+      - net.ipv4.conf.all.forwarding=1
+
+  node3:
+    build: .
+    container_name: node3
+    networks:
+      net-a:
+        ipv4_address: 172.20.1.13
+    environment:
+      - TZ=Europe/Moscow
+      - ID=3
+      - PORT=6040
+      - LOG_LEVEL=INFO
+    command: [ "./mesh-node" ]
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    stdin_open: true
+    tty: true
+    sysctls:
+      - net.ipv4.icmp_echo_ignore_broadcasts=0
+      - net.ipv4.conf.all.bc_forwarding=1
+      - net.ipv4.conf.default.bc_forwarding=1
+      - net.ipv4.conf.all.forwarding=1
+
+  node4:
+    build: .
+    container_name: node4
+    networks:
+      net-a:
+        ipv4_address: 172.20.1.14
+    environment:
+      - TZ=Europe/Moscow
+      - ID=4
+      - INTERFACE=eth0
+      - PORT=6040
+      - LOG_LEVEL=INFO
+    command: [ "./mesh-node" ]
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    stdin_open: true
+    tty: true
+    sysctls:
+      - net.ipv4.icmp_echo_ignore_broadcasts=0
+      - net.ipv4.conf.all.bc_forwarding=1
+      - net.ipv4.conf.default.bc_forwarding=1
+      - net.ipv4.conf.all.forwarding=1
+
+  node5:
+    build: .
+    container_name: node5
+    networks:
+      net-b:
+        ipv4_address: 172.20.2.10
+    environment:
+      - TZ=Europe/Moscow
+      - ID=5
+      - PORT=6040
+      - LOG_LEVEL=INFO
+    command: [ "./mesh-node" ]
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    stdin_open: true
+    tty: true
+    sysctls:
+      - net.ipv4.icmp_echo_ignore_broadcasts=0
+      - net.ipv4.conf.all.bc_forwarding=1
+      - net.ipv4.conf.default.bc_forwarding=1
+      - net.ipv4.conf.all.forwarding=1
+
+  node6:
+    build: .
+    container_name: node6
+    networks:
+      net-b:
+        ipv4_address: 172.20.2.12
+    environment:
+      - TZ=Europe/Moscow
+      - ID=6
+      - PORT=6040
+      - LOG_LEVEL=INFO
+    command: [ "./mesh-node" ]
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    stdin_open: true
+    tty: true
+    sysctls:
+      - net.ipv4.icmp_echo_ignore_broadcasts=0
+      - net.ipv4.conf.all.bc_forwarding=1
+      - net.ipv4.conf.default.bc_forwarding=1
+      - net.ipv4.conf.all.forwarding=1
+
+  node7:
+    build: .
+    container_name: node7
+    networks:
+      net-b:
+        ipv4_address: 172.20.2.13
+      net-c:
+        ipv4_address: 172.20.3.14
+    environment:
+      - TZ=Europe/Moscow
+      - ID=7
+      - PORT=6040
+      - LOG_LEVEL=INFO
+    command: [ "./mesh-node" ]
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    stdin_open: true
+    tty: true
+    sysctls:
+      - net.ipv4.icmp_echo_ignore_broadcasts=0
+      - net.ipv4.conf.all.bc_forwarding=1
+      - net.ipv4.conf.default.bc_forwarding=1
+      - net.ipv4.conf.all.forwarding=1
+
+  node8:
+    build: .
+    container_name: node8
+    networks:
+      net-c:
+        ipv4_address: 172.20.3.10
+    environment:
+      - TZ=Europe/Moscow
+      - ID=8
+      - INTERFACE=eth0
+      - PORT=6040
+      - LOG_LEVEL=INFO
+    command: [ "./mesh-node" ]
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    stdin_open: true
+    tty: true
+    sysctls:
+      - net.ipv4.icmp_echo_ignore_broadcasts=0
+      - net.ipv4.conf.all.bc_forwarding=1
+      - net.ipv4.conf.default.bc_forwarding=1
+      - net.ipv4.conf.all.forwarding=1
+
+  node9:
+    build: .
+    container_name: node9
+    networks:
+      net-c:
+        ipv4_address: 172.20.3.12
+      net-a:
+        ipv4_address: 172.20.1.15
+    environment:
+      - TZ=Europe/Moscow
+      - ID=9
+      - PORT=6040
+      - LOG_LEVEL=INFO
+    command: [ "./mesh-node" ]
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    stdin_open: true
+    tty: true
+    sysctls:
+      - net.ipv4.icmp_echo_ignore_broadcasts=0
+      - net.ipv4.conf.all.bc_forwarding=1
+      - net.ipv4.conf.default.bc_forwarding=1
+      - net.ipv4.conf.all.forwarding=1
+
+  node10:
+    build: .
+    container_name: node10
+    networks:
+      net-c:
+        ipv4_address: 172.20.3.13
+      net-d:
+        ipv4_address: 172.20.4.12
+    environment:
+      - TZ=Europe/Moscow
+      - ID=10
+      - INTERFACE=eth0,eth1
+      - PORT=6040
+      - LOG_LEVEL=INFO
+    command: [ "./mesh-node" ]
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    stdin_open: true
+    tty: true
+    sysctls:
+      - net.ipv4.icmp_echo_ignore_broadcasts=0
+      - net.ipv4.conf.all.bc_forwarding=1
+      - net.ipv4.conf.default.bc_forwarding=1
+      - net.ipv4.conf.all.forwarding=1
+
+  node11:
+    build: .
+    container_name: node11
+    networks:
+      net-d:
+        ipv4_address: 172.20.4.10
+    environment:
+      - TZ=Europe/Moscow
+      - ID=11
+      - PORT=6040
+      - LOG_LEVEL=INFO
+    command: [ "./mesh-node" ]
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    stdin_open: true
+    tty: true
+    sysctls:
+      - net.ipv4.icmp_echo_ignore_broadcasts=0
+      - net.ipv4.conf.all.bc_forwarding=1
+      - net.ipv4.conf.default.bc_forwarding=1
+      - net.ipv4.conf.all.forwarding=1
