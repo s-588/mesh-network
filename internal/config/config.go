@@ -20,7 +20,7 @@ var (
 	defaultConfig = Config{
 		AppConfig: AppConfig{
 			Port:          6040,
-			Ifaces:        []string{"eth0"},
+			Interfaces:    []string{"eth0"},
 			ID:            1234,
 			TTL:           20,
 			Lifetime:      30,
@@ -44,7 +44,7 @@ type Config struct {
 type AppConfig struct {
 	ID            uint64
 	Port          uint16
-	Ifaces        []string
+	Interfaces    []string
 	TTL           uint8
 	Lifetime      uint32 // lifetime for RREP and route table in seconds
 	HelloInterval int
@@ -91,7 +91,7 @@ func NewConfig() (Config, error) {
 
 	if *flagInterface != "" {
 		ifacesStr := string(*flagInterface)
-		cfg.Ifaces = strings.Split(ifacesStr, ",")
+		cfg.Interfaces = strings.Split(ifacesStr, ",")
 	}
 
 	if *flagID != 0 {
@@ -143,7 +143,7 @@ func applyEnv(cfg *Config) error {
 
 	if s := os.Getenv("INTERFACE"); s != "" {
 		if ifaces := strings.Split(strings.ReplaceAll(s, " ", ""), ","); len(ifaces) != 0 {
-			cfg.Ifaces = ifaces
+			cfg.Interfaces = ifaces
 		} else {
 			return fmt.Errorf("parsed INTERFACE is empty")
 		}
@@ -184,8 +184,12 @@ func applyEnv(cfg *Config) error {
 	if s := os.Getenv("LOG_FILE"); s != "" {
 		cfg.LogFile = path.Clean(s)
 	} else {
-		dir, _ := os.UserHomeDir()
-		cfg.LogFile = path.Join(dir, "mesh-network", defaultConfig.LogFile)
+		dir, err := os.UserHomeDir()
+		if err != nil {
+			cfg.LogFile = "mesh-network_" + defaultConfig.LogFile
+		} else {
+			cfg.LogFile = path.Join(dir, defaultConfig.LogFile)
+		}
 	}
 
 	if s := os.Getenv("LOG_LEVEL"); s != "" {
@@ -214,7 +218,7 @@ func (cfg *Config) String() string {
 	sb.WriteString(fmt.Sprintf("\t\tID: %d\n", cfg.ID))
 	sb.WriteString(fmt.Sprintf("\t\tPort: %d\n", cfg.Port))
 	sb.WriteString("\t\tInterfaces: ")
-	for i, iface := range cfg.Ifaces {
+	for i, iface := range cfg.Interfaces {
 		if i > 0 {
 			sb.WriteString(", ")
 		}

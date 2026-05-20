@@ -1,17 +1,17 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
-	"strconv"
-	"strings"
 
+	tea "charm.land/bubbletea/v2"
+	"github.com/s-588/mesh-network/cmd/mesh-node/tui"
 	"github.com/s-588/mesh-network/internal/config"
 	"github.com/s-588/mesh-network/internal/logger"
-	"github.com/s-588/mesh-network/internal/routing"
 	"github.com/s-588/mesh-network/internal/socket"
+	l "github.com/s-588/mesh-network/pkg/logger"
 )
 
 func main() {
@@ -20,13 +20,17 @@ func main() {
 		panic(err)
 	}
 
-	err = logger.SetupSlog(cfg)
+	tuiLogChan := make(chan string, 10)
+	tuiLogger := &tui.RouterLogHandler{
+		Logs: tuiLogChan,
+	}
+	err = logger.SetupSlog(cfg, tuiLogger)
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Fprintln(os.Stdout, "Starting node")
-	fmt.Fprintf(os.Stdout, "Using %s", cfg.String())
+	slog.Info("Starting node")
+	slog.Info(fmt.Sprintf("Configuration parsed: %s", cfg.String()))
 
 	t, err := socket.NewSocket(cfg.AppConfig)
 	if err != nil {
@@ -40,42 +44,25 @@ func main() {
 	go t.StartNeighbourCollector(ctx)
 
 	if cfg.IsDaemon {
-		fmt.Fprintf(os.Stdout, "Node started as daemon")
+		slog.Info("Node started as daemon")
 		<-ctx.Done()
 		return
 	}
 
-	fmt.Fprintln(os.Stdout, "Node started. Type 'help' for commands.")
-
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		if !scanner.Scan() {
-		}
-
-		line := scanner.Text()
-		parts := strings.Fields(line)
-		if len(parts) == 0 {
-			continue
-		}
-
-		command := parts[0]
-		switch command {
-		case "send":
-			if len(parts) < 3 {
-				fmt.Fprintln(os.Stdout, "Usage: send <dstID> <message>")
-				continue
-			}
-			dstID, _ := strconv.ParseUint(parts[1], 10, 64)
-			payload := strings.Join(parts[2:], " ")
-			t.SendData(dstID, []byte(payload))
-		case "status":
-			fmt.Fprintf(os.Stdout, "Neighbours table:\n%s\n", &routing.NeighboursTable)
-			fmt.Fprintf(os.Stdout, "Routing table:\n%s\n", &routing.RoutesTable)
-		case "exit":
-			fmt.Fprintln(os.Stdout, "Exiting...")
-			return
-		default:
-			fmt.Fprintln(os.Stdout, "Unknown command. Use: send, status, exit")
-		}
+	slog.Info("RREP received", // fixed typo too
+		"type", l.LogTypeRREPReceived,
+		"from", 5,
+		"to", 2,
+		"interface", "eth0", // ← add this
+		"dst_seq", 10,
+		"prev_hop", "10.10.10.10",
+		"hops", 10,
+		"ttl", 11,
+	)
+	tuiModel := tui.InitialModel(int(cfg.ID), cfg.Interfaces, tuiLogChan, t)
+	p := tea.NewProgram(tuiModel)
+	if _, err := p.Run(); err != nil {
+		slog.Error("Fatal structural UI application component crash", "error", err)
+		os.Exit(1)
 	}
 }

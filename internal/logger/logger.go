@@ -7,38 +7,82 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/s-588/mesh-network/internal/config"
 )
 
-func SetupSlog(cfg config.Config) error {
+func openLogFile(filename string) *os.File {
 	var logFile *os.File
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("open home directory: %w", err)
-	} else {
-		var err error
-		logFile, err = os.Open(path.Join(homeDir, "mesh-network"))
+	if filename != "" {
+		f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
-			slog.Error("open log file, logs will appear only in stdout", "error", err)
+			slog.Warn("file passed as log file can't be openned. Default log file will be used", "error", err, "filename", filename)
+		} else {
+			logFile = f
+		}
+	} else {
+		slog.Warn("log file name has not been passed in config. Default log file will be used")
+		filename = time.Now().Format(strings.ReplaceAll(time.DateTime, " ", "_")) + ".log"
+
+		tempDir := os.TempDir()
+		if tempDir == "" {
+			slog.Warn("temp dir can't be found, home directory will be used instead")
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				slog.Warn("home dir can't be found, log file will be created here")
+				f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, 0644)
+				if err != nil {
+					slog.Error("log file cannot be created", "error", err)
+					return nil
+				}
+				logFile = f
+			} else {
+				f, err := os.OpenFile(path.Join(homeDir, filename), os.O_CREATE|os.O_WRONLY, 0644)
+				if err != nil {
+					slog.Error("log file cannot be created", "error", err)
+					return nil
+				}
+				logFile = f
+			}
+		} else {
+			f, err := os.OpenFile(path.Join(tempDir, filename), os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				slog.Error("log file cannot be created", "error", err)
+				return nil
+			}
+			logFile = f
 		}
 	}
 
-	var lvl slog.Level
-	err = lvl.UnmarshalText([]byte(cfg.Level))
+	return logFile
+}
 
-	stdOutHandler := PrettyHandler{
+func SetupSlog(cfg config.Config, tuiHandler slog.Handler) error {
+	logFile := openLogFile(cfg.LogFile)
+
+	var lvl slog.Level
+	err := lvl.UnmarshalText([]byte(cfg.Level))
+	if err != nil {
+		slog.Warn("log level cannot be parsed. Default INFO level will be used", "error", err)
+		lvl = slog.LevelInfo
+	}
+
+	var h slog.Handler
+	h = PrettyHandler{
 		out:  os.Stdout,
 		opts: slog.HandlerOptions{Level: lvl},
 	}
-	var h slog.Handler
+	if tuiHandler != nil {
+		h = tuiHandler
+	}
+
 	if logFile != nil {
-		h = slog.NewMultiHandler(slog.NewJSONHandler(logFile, &slog.HandlerOptions{
+		h = slog.NewMultiHandler(slog.NewTextHandler(logFile, &slog.HandlerOptions{
 			Level: lvl,
-		}), stdOutHandler)
-	} else {
-		h = stdOutHandler
+		}), h)
 	}
 	slog.SetDefault(slog.New(h))
 	return nil

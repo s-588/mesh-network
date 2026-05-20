@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/netip"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/s-588/mesh-network/internal/config"
 	"github.com/s-588/mesh-network/internal/protocol"
 	"github.com/s-588/mesh-network/internal/routing"
+	"github.com/s-588/mesh-network/pkg/logger"
 )
 
 // Socket
@@ -56,7 +58,7 @@ func NewSocket(cfg config.AppConfig) (*Socket, error) {
 		pendingMsgs: make(map[uint64][][]byte),
 	}
 
-	for _, ifaceName := range cfg.Ifaces {
+	for _, ifaceName := range cfg.Interfaces {
 		iface, err := net.InterfaceByName(ifaceName)
 		if err != nil {
 			return t, fmt.Errorf("get interface %s: %w", ifaceName, err)
@@ -65,7 +67,7 @@ func NewSocket(cfg config.AppConfig) (*Socket, error) {
 		if err != nil {
 			return t, fmt.Errorf("interface setup %s: %w", ifaceName, err)
 		}
-		slog.Info("Interface bounded", "name", iface.Name, "mac", iface.HardwareAddr.String())
+		slog.Info(fmt.Sprintf("Interface %s(%s) bounded", iface.Name, iface.HardwareAddr.String()))
 	}
 
 	return t, nil
@@ -257,6 +259,7 @@ func (t *Socket) handleRREP(msg *protocol.RREP, from netip.AddrPort, iface strin
 	// If we initialized RREQ, this RREP is for us
 	if msg.DstID == t.cfg.ID {
 		slog.Info("Route established",
+			"type", logger.LogTypeRREPReceived,
 			"to", msg.SrcID,
 			"via", from.Addr(),
 			"hops", msg.HopCount,
@@ -291,6 +294,7 @@ func (t *Socket) handleRREP(msg *protocol.RREP, from netip.AddrPort, iface strin
 func (t *Socket) handleDATA(msg *protocol.DATA, from netip.Addr) {
 	if msg.DstID == t.cfg.ID {
 		slog.Info("Message recieved",
+			"type", logger.LogTypeDATAReceived,
 			"from", msg.SrcID,
 			"payload", string(msg.Payload))
 		return
@@ -365,7 +369,7 @@ func (t *Socket) SendData(dstID uint64, payload []byte) {
 		return
 	}
 
-	// wtf is this
+	// TODO: wtf is this
 	var srcIP netip.Addr
 	for _, link := range t.links {
 		srcIP = link.addr
@@ -652,6 +656,7 @@ func (t *Socket) handleMessage(m msg) {
 
 func (t *Socket) handleRERR(msg *protocol.RERR) {
 	slog.Info("Received RERR",
+		"type", logger.LogTypeRRERReceived,
 		"from", msg.SrcID,
 		"to", msg.DstID,
 		"error_code", msg.ErrCode.String(),
@@ -857,4 +862,16 @@ func (t *Socket) SendRERR(precursor uint64, unreachableID uint64, errCode protoc
 	}
 
 	t.sendToAddr(data, route.Addr, route.Interface)
+}
+
+func (t *Socket) GetSeqNum() uint32 {
+	return t.seqNum.Load()
+}
+
+func (t *Socket) GetInterfaces() []string {
+	iface := make([]string, 0, len(t.links))
+	for v := range maps.Values(t.links) {
+		iface = append(iface, v.name)
+	}
+	return iface
 }
