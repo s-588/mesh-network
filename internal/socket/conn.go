@@ -125,14 +125,14 @@ func (t *Socket) setupInterface(name string) (*interfaceState, error) {
 	}, nil
 }
 
-func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr *net.UDPAddr, iface string) {
+func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr netip.AddrPort, iface string) {
 	if msg.SrcID == t.cfg.ID {
 		slog.Debug("RREQ from myself declined",
 			"from", msg.SrcID,
 			"to", msg.DstID,
 			"seq", msg.SrcSeq,
 			"bcastID", msg.BroadcastID,
-			"prev_hop", srcAddr.IP,
+			"prev_hop", srcAddr.Addr(),
 			"interface", iface,
 			"hops", msg.HopCount,
 			"ttl", msg.TTL)
@@ -148,7 +148,7 @@ func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr *net.UDPAddr, iface stri
 			"to", msg.DstID,
 			"seq", msg.SrcSeq,
 			"bcastID", msg.BroadcastID,
-			"prev_hop", srcAddr.IP,
+			"prev_hop", srcAddr.Addr(),
 			"interface", iface,
 			"hops", msg.HopCount,
 			"ttl", msg.TTL,
@@ -163,7 +163,7 @@ func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr *net.UDPAddr, iface stri
 		"to", msg.DstID,
 		"seq", msg.SrcSeq,
 		"bcastID", msg.BroadcastID,
-		"prev_hop", srcAddr.IP,
+		"prev_hop", srcAddr.Addr(),
 		"interface", iface,
 		"hops", msg.HopCount,
 		"ttl", msg.TTL,
@@ -189,7 +189,7 @@ func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr *net.UDPAddr, iface stri
 			"to", msg.DstID,
 			"seq", msg.SrcSeq,
 			"bcastID", msg.BroadcastID,
-			"prev_hop", srcAddr.IP,
+			"prev_hop", srcAddr.Addr(),
 			"interface", iface,
 			"hops", msg.HopCount,
 			"ttl", msg.TTL,
@@ -216,7 +216,7 @@ func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr *net.UDPAddr, iface stri
 			"to", msg.DstID,
 			"seq", msg.SrcSeq,
 			"bcastID", msg.BroadcastID,
-			"prev_hop", srcAddr.IP,
+			"prev_hop", srcAddr.Addr(),
 			"interface", iface,
 			"new_hops", msg.HopCount,
 			"new_ttl", msg.TTL,
@@ -291,7 +291,7 @@ func (t *Socket) handleRREP(msg *protocol.RREP, from netip.AddrPort, iface strin
 	}
 }
 
-func (t *Socket) handleDATA(msg *protocol.DATA, from netip.Addr) {
+func (t *Socket) handleDATA(msg *protocol.DATA, from netip.AddrPort) {
 	if msg.DstID == t.cfg.ID {
 		slog.Info("Message recieved",
 			"type", logger.LogTypeDATAReceived,
@@ -307,7 +307,7 @@ func (t *Socket) handleDATA(msg *protocol.DATA, from netip.Addr) {
 		"prev_hop", from,
 	)
 
-	neighbour, found := routing.FindNeighbourByAddr(from)
+	neighbour, found := routing.FindNeighbourByAddr(from.Addr())
 	if found {
 		// neighbour relaying on us to forward the message
 		// we need to add him to precursors to later send him RERR
@@ -599,6 +599,11 @@ func (t *Socket) handleMessage(m msg) {
 		return
 	}
 
+	var senderAddr netip.AddrPort
+	if m.addr != nil {
+		senderAddr = m.addr.AddrPort()
+	}
+
 	switch h.MsgType {
 	// TODO: unify what they accept as sender IP, because
 	// handleHELLO and handleRREQ accept *UDPAddr
@@ -610,7 +615,7 @@ func (t *Socket) handleMessage(m msg) {
 			slog.Error("Failed to unmarshal HELLO", "error", err)
 			return
 		}
-		t.handleHELLO(&hello, m.addr, m.iface)
+		t.handleHELLO(&hello, senderAddr, m.iface)
 
 	case protocol.RREQMsgType:
 		var rreq protocol.RREQ
@@ -618,7 +623,7 @@ func (t *Socket) handleMessage(m msg) {
 			slog.Error("Failed to unmarshal RREQ", "error", err)
 			return
 		}
-		t.handleRREQ(&rreq, m.addr, m.iface)
+		t.handleRREQ(&rreq, senderAddr, m.iface)
 
 	case protocol.RREPMsgType:
 		var rrep protocol.RREP
@@ -626,7 +631,7 @@ func (t *Socket) handleMessage(m msg) {
 			slog.Error("Failed to unmarshal RREP", "error", err)
 			return
 		}
-		t.handleRREP(&rrep, m.addr.AddrPort(), m.iface)
+		t.handleRREP(&rrep, senderAddr, m.iface)
 
 	case protocol.RERRMsgType:
 		var rerr protocol.RERR
@@ -642,7 +647,7 @@ func (t *Socket) handleMessage(m msg) {
 			slog.Error("Failed to unmarshal DATA", "error", err)
 			return
 		}
-		t.handleDATA(&data, m.addr.AddrPort().Addr())
+		t.handleDATA(&data, senderAddr)
 
 	default:
 		slog.Info("Received unknown message",
@@ -689,14 +694,8 @@ func (t *Socket) handleRERR(msg *protocol.RERR) {
 	}
 }
 
-func (t *Socket) handleHELLO(msg *protocol.HELLO, from *net.UDPAddr, iface string) {
-	addrPort := netip.AddrPortFrom(
-		netip.MustParseAddr(from.IP.String()),
-		uint16(from.Port),
-	)
-	// slog.Debug("HELLO accepted", "from", from, "msg", msg)
-
-	routing.UpdateNeighbour(msg.SrcID, addrPort, iface)
+func (t *Socket) handleHELLO(msg *protocol.HELLO, from netip.AddrPort, iface string) {
+	routing.UpdateNeighbour(msg.SrcID, from, iface)
 }
 
 func (t *Socket) Broadcast(data []byte) {
