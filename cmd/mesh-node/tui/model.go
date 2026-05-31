@@ -5,22 +5,36 @@ import (
 	"strconv"
 	"strings"
 
+	"charm.land/bubbles/v2/table"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/s-588/mesh-network/internal/routing"
 	"github.com/s-588/mesh-network/internal/socket"
 )
 
+const (
+	focusNodeInput = iota
+	focusPayload
+	focusSendButton
+	focusLogs
+	focusNeighboursTable
+	focusRoutesTable
+)
+
 type model struct {
-	width  int
-	height int
+	width            int
+	height           int
+	topSectionHeight int
 
 	nodeIDTextInput  textinput.Model
 	payloadAreaInput textarea.Model
 	sendButton       string
 	resultViewport   viewport.Model
+	neighboursTable  table.Model
+	routesTable      table.Model
 
 	focused int
 	logs    []string
@@ -52,10 +66,45 @@ func InitialModel(nodeID int, ifaces []string, logChan <-chan string, sock *sock
 	vp := viewport.New()
 	vp.SetContent("Results will appear here.")
 
+	neighboursColumns := []table.Column{
+		{Title: "ID", Width: 10},
+		{Title: "Address", Width: 24},
+		{Title: "Last Seen", Width: 20},
+		{Title: "Iface", Width: 12},
+	}
+
+	neighboursTable := table.New(
+		table.WithColumns(neighboursColumns),
+		table.WithRows([]table.Row{}),
+		table.WithFocused(false),
+		table.WithHeight(6),
+	)
+
+	routesColumns := []table.Column{
+		{Title: "Dst", Width: 10},
+		{Title: "Seq", Width: 8},
+		{Title: "Hops", Width: 6},
+		{Title: "Next Hop", Width: 12},
+		{Title: "Address", Width: 24},
+		{Title: "Iface", Width: 10},
+	}
+
+	routesTable := table.New(
+		table.WithColumns(routesColumns),
+		table.WithRows([]table.Row{}),
+		table.WithFocused(false),
+		table.WithHeight(8),
+	)
+
+	neighboursTable.SetStyles(tableStyles())
+	routesTable.SetStyles(tableStyles())
+
 	return model{
 		nodeIDTextInput:  ti,
 		payloadAreaInput: ta,
 		resultViewport:   vp,
+		neighboursTable:  neighboursTable,
+		routesTable:      routesTable,
 		sendButton:       " Send ",
 		focused:          0,
 		nodeID:           nodeID,
@@ -67,19 +116,27 @@ func InitialModel(nodeID int, ifaces []string, logChan <-chan string, sock *sock
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, listenForLogs(m.logChan))
+	return tea.Batch(
+		textinput.Blink,
+		listenForLogs(m.logChan),
+		refreshTablesCmd(),
+	)
 }
 
 // updateSizes — центральня функция адаптивности
 func (m *model) updateSizes(width, height int) {
 	m.width = width
 	m.height = height
+	m.topSectionHeight = (m.height * 45) / 100
 
 	if m.width < 60 {
 		m.width = 60
 	}
 	if m.height < 20 {
 		m.height = 20
+	}
+	if m.topSectionHeight < 14 {
+		m.topSectionHeight = 14
 	}
 
 	// Пропорции: ~45% левая панель, остальное — правая
@@ -112,50 +169,61 @@ func (m *model) updateSizes(width, height int) {
 	if vpHeight < 8 {
 		vpHeight = 8
 	}
-	m.viewportHeight = vpHeight
+	m.viewportHeight = m.topSectionHeight - 8
+
+	tableHeight := (m.height - m.topSectionHeight - 10) / 2
+	if tableHeight < 5 {
+		tableHeight = 5
+	}
+	m.neighboursTable.SetHeight(tableHeight)
+	m.routesTable.SetHeight(tableHeight)
 }
 
 func (m *model) nextFocus() {
 	m.blurCurrent()
-
-	m.focused = (m.focused + 1) % 4
-
-	switch m.focused {
-	case 0:
-		m.nodeIDTextInput.Focus()
-	case 1:
-		m.payloadAreaInput.Focus()
-	case 2, 3:
-		// buttons/viewport don't need focus
-	}
+	m.focused = (m.focused + 1) % 6
+	m.applyFocus()
 }
 
 func (m *model) prevFocus() {
 	m.blurCurrent()
+	m.focused = (m.focused + 5) % 6
+	m.applyFocus()
+}
 
-	m.focused = (m.focused + 3) % 4 // -1 mod 4
-
+func (m *model) applyFocus() {
 	switch m.focused {
-	case 0:
+	case focusNodeInput:
 		m.nodeIDTextInput.Focus()
-	case 1:
+
+	case focusPayload:
 		m.payloadAreaInput.Focus()
+
+	case focusNeighboursTable:
+		m.neighboursTable.Focus()
+
+	case focusRoutesTable:
+		m.routesTable.Focus()
 	}
 }
 
 func (m *model) blurCurrent() {
-	switch m.focused {
-	case 0:
-		m.nodeIDTextInput.Blur()
-	case 1:
-		m.payloadAreaInput.Blur()
-	}
+	m.nodeIDTextInput.Blur()
+	m.payloadAreaInput.Blur()
+
+	m.neighboursTable.Blur()
+	m.routesTable.Blur()
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tablesRefreshMsg:
+		m.refreshNeighboursTable()
+		m.refreshRoutesTable()
+		return m, refreshTablesCmd()
+
 	case LogMsg:
 		m.logs = append(m.logs, string(msg))
 		m.resultViewport.SetContent(strings.Join(m.logs, "\n"))
@@ -169,6 +237,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.payloadAreaInput.SetWidth(m.textareaWidth)
 		m.resultViewport.SetWidth(m.viewportWidth)
 		m.resultViewport.SetHeight(m.viewportHeight)
+		m.neighboursTable.SetWidth(m.width - 6)
+		m.routesTable.SetWidth(m.width - 6)
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -240,8 +310,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.payloadAreaInput, cmd = m.payloadAreaInput.Update(msg)
 		cmds = append(cmds, cmd)
 	}
-		m.resultViewport, cmd = m.resultViewport.Update(msg)
-		cmds = append(cmds, cmd)
+	m.resultViewport, cmd = m.resultViewport.Update(msg)
+	cmds = append(cmds, cmd)
+
+	m.neighboursTable, cmd = m.neighboursTable.Update(msg)
+	cmds = append(cmds, cmd)
+
+	m.routesTable, cmd = m.routesTable.Update(msg)
+	cmds = append(cmds, cmd)
 
 	return m, tea.Batch(cmds...)
 }
@@ -286,7 +362,10 @@ func (m model) View() (view tea.View) {
 		payloadView,
 	)
 
-	leftPanel := leftPanelStyle.Width(m.leftWidth).Render(leftContent)
+	leftPanel := leftPanelStyle.
+		Width(m.leftWidth).
+		Height(m.topSectionHeight).
+		Render(leftContent)
 
 	// RIGHT PANEL
 	rightContent := lipgloss.JoinVertical(
@@ -294,14 +373,82 @@ func (m model) View() (view tea.View) {
 		resultHeaderStyle.Render("Result / Logs"),
 		m.resultViewport.View(),
 	)
-	rightPanel := rightPanelStyle.Width(m.rightWidth).Render(rightContent)
+	rightPanel := rightPanelStyle.
+		Width(m.rightWidth).
+		Height(m.topSectionHeight).
+		Render(rightContent)
 
-	layout := lipgloss.JoinHorizontal(
+	topLayout := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		leftPanel,
 		lipgloss.NewStyle().PaddingLeft(1).Render(rightPanel),
 	)
 
+	neighboursBlock := panelStyle.
+		Width(m.width - 2).
+		Render(
+			lipgloss.JoinVertical(
+				lipgloss.Left,
+				resultHeaderStyle.Render("Neighbours Table"),
+				m.neighboursTable.View(),
+			),
+		)
+
+	routesBlock := panelStyle.
+		Width(m.width - 2).
+		Render(
+			lipgloss.JoinVertical(
+				lipgloss.Left,
+				resultHeaderStyle.Render("Routes Table"),
+				m.routesTable.View(),
+			),
+		)
+
+	layout := lipgloss.JoinVertical(
+		lipgloss.Left,
+		topLayout,
+		"",
+		neighboursBlock,
+		"",
+		routesBlock,
+	)
+
 	view.SetContent(appStyle.Width(m.width).Render(layout))
 	return view
+}
+
+func (m *model) refreshNeighboursTable() {
+	entries := routing.NeighboursTable.Snapshot()
+
+	rows := make([]table.Row, 0, len(entries))
+
+	for _, e := range entries {
+		rows = append(rows, table.Row{
+			fmt.Sprintf("%d", e.ID),
+			e.Addr.String(),
+			e.LastSeen.Format("15:04:05"),
+			e.Interface,
+		})
+	}
+
+	m.neighboursTable.SetRows(rows)
+}
+
+func (m *model) refreshRoutesTable() {
+	entries := routing.RoutesTable.Snapshot()
+
+	rows := make([]table.Row, 0, len(entries))
+
+	for _, e := range entries {
+		rows = append(rows, table.Row{
+			fmt.Sprintf("%d", e.DstID),
+			fmt.Sprintf("%d", e.DstSeq),
+			fmt.Sprintf("%d", e.HopCount),
+			fmt.Sprintf("%d", e.NextHopID),
+			e.NextHopAddr.String(),
+			e.Interface,
+		})
+	}
+
+	m.routesTable.SetRows(rows)
 }

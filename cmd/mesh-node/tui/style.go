@@ -1,6 +1,9 @@
 package tui
 
-import "charm.land/lipgloss/v2"
+import (
+	"charm.land/bubbles/v2/table"
+	"charm.land/lipgloss/v2"
+)
 
 var (
 	borderColor = lipgloss.Color("#ff94ee")
@@ -70,3 +73,20 @@ var (
 		// Background(appBg).
 		Foreground(textColor)
 )
+
+func tableStyles() table.Styles {
+	s := table.DefaultStyles()
+
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderBottom(true).
+		Bold(true).
+		Foreground(accent)
+
+	s.Selected = s.Selected.
+		Foreground(textColor).
+		Background(accent2).
+		Bold(true)
+
+	return s
+}

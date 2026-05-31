@@ -11,7 +11,6 @@ import (
 	"github.com/s-588/mesh-network/internal/config"
 	"github.com/s-588/mesh-network/internal/logger"
 	"github.com/s-588/mesh-network/internal/socket"
-	l "github.com/s-588/mesh-network/pkg/logger"
 )
 
 func main() {
@@ -49,16 +48,6 @@ func main() {
 		return
 	}
 
-	slog.Info("RREP received", // fixed typo too
-		"type", l.LogTypeRREPReceived,
-		"from", 5,
-		"to", 2,
-		"interface", "eth0", // ← add this
-		"dst_seq", 10,
-		"prev_hop", "10.10.10.10",
-		"hops", 10,
-		"ttl", 11,
-	)
 	tuiModel := tui.InitialModel(int(cfg.ID), cfg.Interfaces, tuiLogChan, t)
 	p := tea.NewProgram(tuiModel)
 	if _, err := p.Run(); err != nil {

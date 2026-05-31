@@ -1,6 +1,10 @@
 package tui
 
-import tea "charm.land/bubbletea/v2"
+import (
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+)
 
 type LogMsg string
 
@@ -13,4 +17,12 @@ func listenForLogs(logChan <-chan string) tea.Cmd {
 		}
 		return nil
 	}
+}
+
+type tablesRefreshMsg struct{}
+
+func refreshTablesCmd() tea.Cmd {
+	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+		return tablesRefreshMsg{}
+	})
 }

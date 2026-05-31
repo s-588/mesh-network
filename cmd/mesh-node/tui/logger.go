@@ -11,26 +11,56 @@ import (
 )
 
 var (
-	nodeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true)
-	ifaceStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	msgStyle   = lipgloss.NewStyle().Italic(true)
-	levelStyle = map[slog.Level]lipgloss.Style{
-		slog.LevelDebug: lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
-		slog.LevelInfo:  lipgloss.NewStyle().Foreground(lipgloss.Color("39")),
-		slog.LevelWarn:  lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true),
-		slog.LevelError: lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true),
-	}
+	timeStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240"))
+
+	debugStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("244"))
+
+	infoStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("45")).
+			Bold(true)
+
+	warnStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("214")).
+			Bold(true)
+
+	errorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
+			Bold(true)
+
+	nodeStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("212")).
+			Bold(true)
+
+	ifaceStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("117"))
+
+	keyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("244"))
+
+	valueStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252"))
+
+	errorMsgStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
+			Italic(true)
 )
 
 type RouterLogHandler struct {
-	Logs chan<- string
+	Logs  chan<- string
+	level slog.Level
 }
 
-func (h *RouterLogHandler) Enabled(_ context.Context, _ slog.Level) bool {
-	return true
+func (h *RouterLogHandler) Enabled(_ context.Context, level slog.Level) bool {
+	return level >= h.level
 }
 
-func (h *RouterLogHandler) Handle(_ context.Context, r slog.Record) error {
+func (h *RouterLogHandler) Handle(ctx context.Context, r slog.Record) error {
+	if !h.Enabled(ctx, r.Level) {
+		return nil
+	}
+
 	attrs := make(map[string]any)
 	r.Attrs(func(a slog.Attr) bool {
 		attrs[a.Key] = a.Value.Any()
@@ -45,23 +75,23 @@ func (h *RouterLogHandler) Handle(_ context.Context, r slog.Record) error {
 		switch t {
 		case logger.LogTypeDATAReceived:
 			fmt.Println(attrs["type"])
-			formatted.WriteString(formatDataReceived(attrs))
+			formatted.WriteString(formatDataReceived(r, attrs))
 
 		case logger.LogTypeDATASent:
 			fmt.Println(attrs["type"])
-			formatted.WriteString(formatDataSent(attrs))
+			formatted.WriteString(formatDataSent(r, attrs))
 
 		case logger.LogTypeRREQReceived, logger.LogTypeRREQSent:
 			fmt.Println(attrs["type"])
-			formatted.WriteString(formatRREQ(attrs))
+			formatted.WriteString(formatRREQ(r, attrs))
 
 		case logger.LogTypeRREPReceived, logger.LogTypeRREPSent:
 			fmt.Println(attrs["type"])
-			formatted.WriteString(formatRREP(attrs))
+			formatted.WriteString(formatRREP(r, attrs))
 
 		case logger.LogTypeRRERReceived:
 			fmt.Println(attrs["type"])
-			formatted.WriteString(formatRRER(attrs))
+			formatted.WriteString(formatRRER(r, attrs))
 		}
 	default:
 		formatted.WriteString(formatDefault(r, attrs))
@@ -78,74 +108,132 @@ func (h *RouterLogHandler) Handle(_ context.Context, r slog.Record) error {
 // Helper formatters
 // ─────────────────────────────────────────────────────────────
 
-func formatDataReceived(attrs map[string]any) string {
-	return fmt.Sprintf("%s : %s %s %s ... %s",
-		nodeStyle.Render(fmt.Sprint(attrs["to"])),
-		attrs["payload"],
-		ifaceStyle.Render("<-"+fmt.Sprint(attrs["interface"])),
-		"<- Node"+fmt.Sprint(attrs["from"]),
-		nodeStyle.Render(fmt.Sprint(attrs["to"])),
+func safeNode(v any) string {
+	if v == nil {
+		return "Unknown"
+	}
+	return fmt.Sprint(v)
+}
+
+func safeIface(v any) string {
+	if v == nil {
+		return "?"
+	}
+	return fmt.Sprint(v)
+}
+
+func renderPrefix(r slog.Record, category string) string {
+	timestamp := timeStyle.Render(r.Time.Format("15:04:05"))
+
+	return fmt.Sprintf(
+		"%s  %s  %-6s ",
+		timestamp,
+		renderLevel(r.Level),
+		category,
 	)
 }
 
-func formatDataSent(attrs map[string]any) string {
-	return fmt.Sprintf("-> %s : %s %s -> Node%s ... %s",
-		nodeStyle.Render(fmt.Sprint(attrs["to"])),
-		attrs["payload"],
-		ifaceStyle.Render("-> "+fmt.Sprint(attrs["interface"])),
-		attrs["next_hop"],
-		nodeStyle.Render(fmt.Sprint(attrs["to"])),
+func renderLevel(level slog.Level) string {
+	switch level {
+	case slog.LevelDebug:
+		return debugStyle.Render("DEBUG")
+
+	case slog.LevelInfo:
+		return infoStyle.Render("INFO ")
+
+	case slog.LevelWarn:
+		return warnStyle.Render("WARN ")
+
+	case slog.LevelError:
+		return errorStyle.Render("ERROR")
+
+	default:
+		return level.String()
+	}
+}
+
+func formatDataReceived(r slog.Record, attrs map[string]any) string {
+	return fmt.Sprintf(
+		"%s %s ← %s  %s",
+		renderPrefix(r, "DATA"),
+		nodeStyle.Render("Node"+fmt.Sprint(attrs["to"])),
+		nodeStyle.Render("Node"+fmt.Sprint(attrs["from"])),
+		valueStyle.Render(fmt.Sprintf("%q", attrs["payload"])),
 	)
 }
 
-func formatRREQ(attrs map[string]any) string {
-	return fmt.Sprintf("RREQ : %s %s %s",
-		attrs["id"],
-		"->",
-		ifaceStyle.Render(fmt.Sprint(attrs["interfaces"])),
+func formatDataSent(r slog.Record, attrs map[string]any) string {
+	return fmt.Sprintf(
+		"%s %s → %s  %s  %s",
+		renderPrefix(r, "DATA"),
+		nodeStyle.Render("Node"+fmt.Sprint(attrs["from"])),
+		nodeStyle.Render("Node"+fmt.Sprint(attrs["to"])),
+		ifaceStyle.Render(fmt.Sprintf("via %v", attrs["interface"])),
+		valueStyle.Render(fmt.Sprintf("%q", attrs["payload"])),
 	)
 }
 
-func formatRREP(attrs map[string]any) string {
-	to := attrs["to"]
-	from := attrs["from"]
-	iface := getAttr(attrs, "interface", "")
-
-	return fmt.Sprintf("RREP -> %s : %s <- Node%s ... %s",
-		nodeStyle.Render(fmt.Sprint(to)),
-		ifaceStyle.Render(fmt.Sprintf("<- %v", iface)),
-		fmt.Sprint(from),
-		nodeStyle.Render(fmt.Sprint(to)),
+func formatRREQ(r slog.Record, attrs map[string]any) string {
+	return fmt.Sprintf(
+		"%s %s → %s  hops=%v ttl=%v seq=%v bcast=%v %s",
+		renderPrefix(r, "RREQ"),
+		nodeStyle.Render("Node"+fmt.Sprint(attrs["from"])),
+		nodeStyle.Render("Node"+fmt.Sprint(attrs["to"])),
+		attrs["hops"],
+		attrs["ttl"],
+		attrs["seq"],
+		attrs["bcastID"],
+		ifaceStyle.Render(fmt.Sprintf("iface=%v", attrs["interface"])),
 	)
 }
 
-func formatRRER(attrs map[string]any) string {
-	return fmt.Sprintf("RERR <- Node%s : broken path -> %s",
-		attrs["from"],
-		nodeStyle.Render(fmt.Sprint(attrs["to"])),
+func formatRREP(r slog.Record, attrs map[string]any) string {
+	return fmt.Sprintf(
+		"%s %s ← %s  %s",
+		renderPrefix(r, "RREP"),
+		nodeStyle.Render("Node"+fmt.Sprint(attrs["to"])),
+		nodeStyle.Render("Node"+fmt.Sprint(attrs["from"])),
+		ifaceStyle.Render(fmt.Sprintf("iface=%v", attrs["interface"])),
+	)
+}
+
+func formatRRER(r slog.Record, attrs map[string]any) string {
+	return fmt.Sprintf(
+		"%s broken route %s ✖ %s",
+		renderPrefix(r, "RERR"),
+		nodeStyle.Render("Node"+fmt.Sprint(attrs["from"])),
+		nodeStyle.Render("Node"+fmt.Sprint(attrs["to"])),
 	)
 }
 
 func formatDefault(r slog.Record, attrs map[string]any) string {
 	var b strings.Builder
 
-	// Level
-	if style, ok := levelStyle[r.Level]; ok {
-		b.WriteString(style.Render(r.Level.String()))
-	} else {
-		b.WriteString(r.Level.String())
-	}
-	b.WriteString(" ")
+	category := "SYS"
 
-	// Message
+	if msgType, ok := attrs["type"]; ok {
+		category = fmt.Sprint(msgType)
+	}
+
+	b.WriteString(renderPrefix(r, category))
 	b.WriteString(r.Message)
 
-	// All attributes (except "type" which we already tried to match)
 	for k, v := range attrs {
 		if k == "type" {
 			continue
 		}
-		b.WriteString(fmt.Sprintf(" %s=%v", k, v))
+
+		b.WriteString("\n")
+		b.WriteString("                    ")
+
+		b.WriteString(keyStyle.Render(k))
+		b.WriteString("=")
+
+		if k == "error" {
+			b.WriteString(errorMsgStyle.Render(fmt.Sprint(v)))
+		} else {
+			b.WriteString(valueStyle.Render(fmt.Sprint(v)))
+		}
 	}
 
 	return b.String()
