@@ -605,10 +605,6 @@ func (t *Socket) handleMessage(m msg) {
 	}
 
 	switch h.MsgType {
-	// TODO: unify what they accept as sender IP, because
-	// handleHELLO and handleRREQ accept *UDPAddr
-	// handleRREP accept netip.AddrPort
-	// handleDATA accept netip.Addr
 	case protocol.HELLOMsgType:
 		var hello protocol.HELLO
 		if err := hello.UnmarshalBinary(m.data); err != nil {
