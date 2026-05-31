@@ -70,7 +70,7 @@ func NewConfig() (Config, error) {
 	flagID := flag.Uint64("id", 0, "ID of this node. Must be set with flag or env variable")
 	flagTTL := flag.Uint("ttl", 0, "Time To Live for messages")
 	flagLifetime := flag.Uint("lifetime", 0, "Lifetime of messages and entrys in route table")
-	flagHelloInterval := flag.Uint("hello-interval", 0, "Interval in which HELLO messages will be broadcasted")
+	flagHelloInterval := flag.Uint("hello_interval", 0, "Interval in which HELLO messages will be broadcasted")
 
 	flagLogFile := flag.String("log_file", "", "Log filename or full path")
 	flagLogLevel := flag.String("log_level", "", "Level of logs that will be displayed")

@@ -180,6 +180,7 @@ services:
       - ID=7
       - PORT=6040
       - LOG_LEVEL=INFO
+      # - INTERFACE=eth0,eth1
     command: [ "./mesh-node" ]
     cap_add:
       - NET_ADMIN
@@ -229,6 +230,7 @@ services:
       - ID=9
       - PORT=6040
       - LOG_LEVEL=INFO
+      - INTERFACE=eth0,eth1
     command: [ "./mesh-node" ]
     cap_add:
       - NET_ADMIN
