@@ -24,13 +24,17 @@ type Socket struct {
 	port  uint16
 	cfg   config.AppConfig
 	links map[string]*interfaceState
-	msgs  chan msg // incoming messages
 
-	seenRREQs map[uint64]uint64 // Key: SrcID, Value: Last BroadcastID
 	seenMu    sync.Mutex
+	seenRREQs map[uint64]uint64 // Key: SrcID, Value: Last BroadcastID
 
-	pendingMsgs map[uint64][][]byte // RREQ messages waiting for incoming RREP
+	incomingMsgs chan msg // incoming messages
+
+	inboxMu   sync.RWMutex
+	inboxMsgs []string // all messages
+
 	pendingMu   sync.Mutex
+	pendingMsgs map[uint64][][]byte // RREQ messages waiting for incoming RREP
 
 	seqNum atomic.Uint32
 }
@@ -50,12 +54,12 @@ type msg struct {
 
 func NewSocket(cfg config.AppConfig) (*Socket, error) {
 	t := &Socket{
-		cfg:         cfg,
-		port:        cfg.Port,
-		links:       make(map[string]*interfaceState),
-		msgs:        make(chan msg, 256),
-		seenRREQs:   make(map[uint64]uint64),
-		pendingMsgs: make(map[uint64][][]byte),
+		cfg:          cfg,
+		port:         cfg.Port,
+		links:        make(map[string]*interfaceState),
+		incomingMsgs: make(chan msg, 256),
+		seenRREQs:    make(map[uint64]uint64),
+		pendingMsgs:  make(map[uint64][][]byte),
 	}
 
 	for _, ifaceName := range cfg.Interfaces {
@@ -297,6 +301,9 @@ func (t *Socket) handleDATA(msg *protocol.DATA, from netip.AddrPort) {
 			"type", logger.LogTypeDATAReceived,
 			"from", msg.SrcID,
 			"payload", string(msg.Payload))
+		t.inboxMu.Lock()
+		t.inboxMsgs = append(t.inboxMsgs, fmt.Sprintf("Node %d: %s", msg.SrcID, string(msg.Payload)))
+		t.inboxMu.Unlock()
 		return
 	}
 
@@ -573,7 +580,7 @@ func (t *Socket) listenOnConn(ctx context.Context, name string, conn *net.UDPCon
 			data := make([]byte, n)
 			copy(data, buf[:n])
 
-			t.msgs <- msg{data: data, addr: addr, iface: name}
+			t.incomingMsgs <- msg{data: data, addr: addr, iface: name}
 		}
 	}
 }
@@ -583,7 +590,7 @@ func (t *Socket) ProcessMessages(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case m := <-t.msgs:
+		case m := <-t.incomingMsgs:
 			t.handleMessage(m)
 		}
 	}
@@ -869,4 +876,14 @@ func (t *Socket) GetInterfaces() []string {
 		iface = append(iface, v.name)
 	}
 	return iface
+}
+
+func (t *Socket) GetMessages() []string {
+	t.inboxMu.RLock()
+	defer t.inboxMu.RUnlock()
+
+	// Возвращаем копию среза, чтобы избежать состояния гонки
+	result := make([]string, len(t.inboxMsgs))
+	copy(result, t.inboxMsgs)
+	return result
 }

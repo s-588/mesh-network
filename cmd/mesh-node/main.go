@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/s-588/mesh-network/cmd/mesh-node/cli"
 	"github.com/s-588/mesh-network/cmd/mesh-node/tui"
 	"github.com/s-588/mesh-network/internal/config"
 	"github.com/s-588/mesh-network/internal/logger"
@@ -17,6 +19,12 @@ func main() {
 	cfg, err := config.NewConfig()
 	if err != nil {
 		panic(err)
+	}
+
+	cliArgs := flag.Args()
+	if len(cliArgs) > 0 {
+		cli.ExecuteCLICommand(cliArgs)
+		return
 	}
 
 	tuiLogChan := make(chan string, 10)
@@ -42,6 +50,7 @@ func main() {
 	go t.StartHelloSender(ctx)
 	go t.StartNeighbourCollector(ctx)
 
+	go cli.StartIPCServer(t)
 	if cfg.IsDaemon {
 		slog.Info("Node started as daemon")
 		<-ctx.Done()

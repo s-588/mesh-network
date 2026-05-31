@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/s-588/mesh-network/cmd/mesh-node/style"
 	"github.com/s-588/mesh-network/internal/routing"
 	"github.com/s-588/mesh-network/internal/socket"
 )
@@ -96,8 +97,8 @@ func InitialModel(nodeID int, ifaces []string, logChan <-chan string, sock *sock
 		table.WithHeight(8),
 	)
 
-	neighboursTable.SetStyles(tableStyles())
-	routesTable.SetStyles(tableStyles())
+	neighboursTable.SetStyles(style.TableStyles())
+	routesTable.SetStyles(style.TableStyles())
 
 	return model{
 		nodeIDTextInput:  ti,
@@ -331,15 +332,15 @@ func (m model) View() (view tea.View) {
 	}
 
 	// LEFT PANEL
-	nodeStyle := blurFieldStyle
+	nodeStyle := style.BlurFieldStyle
 	if m.focused == 0 {
-		nodeStyle = focusFieldStyle
+		nodeStyle = style.FocusFieldStyle
 	}
 	nodeIDView := nodeStyle.Width(m.inputWidth + 2).Render(m.nodeIDTextInput.View())
 
-	btnStyle := sendButtonBlurred
+	btnStyle := style.SendButtonBlurred
 	if m.focused == 2 {
-		btnStyle = sendButtonFocused
+		btnStyle = style.SendButtonFocused
 	}
 	sendBtn := btnStyle.Render(m.sendButton)
 
@@ -349,20 +350,20 @@ func (m model) View() (view tea.View) {
 		lipgloss.NewStyle().PaddingLeft(2).Render(sendBtn),
 	)
 
-	payloadStyle := blurFieldStyle
+	payloadStyle := style.BlurFieldStyle
 	if m.focused == 1 {
-		payloadStyle = focusFieldStyle
+		payloadStyle = style.FocusFieldStyle
 	}
 	payloadView := payloadStyle.Width(m.textareaWidth + 2).Render(m.payloadAreaInput.View())
 
 	leftContent := lipgloss.JoinVertical(
 		lipgloss.Left,
-		titleStyle.Render(fmt.Sprintf("Node ID: %d | Active interfaces: %s", m.nodeID, strings.Join(m.ifaces, ", "))),
+		style.TitleStyle.Render(fmt.Sprintf("Node ID: %d | Active interfaces: %s", m.nodeID, strings.Join(m.ifaces, ", "))),
 		topRow,
 		payloadView,
 	)
 
-	leftPanel := leftPanelStyle.
+	leftPanel := style.LeftPanelStyle.
 		Width(m.leftWidth).
 		Height(m.topSectionHeight).
 		Render(leftContent)
@@ -370,10 +371,10 @@ func (m model) View() (view tea.View) {
 	// RIGHT PANEL
 	rightContent := lipgloss.JoinVertical(
 		lipgloss.Left,
-		resultHeaderStyle.Render("Result / Logs"),
+		style.ResultHeaderStyle.Render("Result / Logs"),
 		m.resultViewport.View(),
 	)
-	rightPanel := rightPanelStyle.
+	rightPanel := style.RightPanelStyle.
 		Width(m.rightWidth).
 		Height(m.topSectionHeight).
 		Render(rightContent)
@@ -384,22 +385,22 @@ func (m model) View() (view tea.View) {
 		lipgloss.NewStyle().PaddingLeft(1).Render(rightPanel),
 	)
 
-	neighboursBlock := panelStyle.
+	neighboursBlock := style.PanelStyle.
 		Width(m.width - 2).
 		Render(
 			lipgloss.JoinVertical(
 				lipgloss.Left,
-				resultHeaderStyle.Render("Neighbours Table"),
+				style.ResultHeaderStyle.Render("Neighbours Table"),
 				m.neighboursTable.View(),
 			),
 		)
 
-	routesBlock := panelStyle.
+	routesBlock := style.PanelStyle.
 		Width(m.width - 2).
 		Render(
 			lipgloss.JoinVertical(
 				lipgloss.Left,
-				resultHeaderStyle.Render("Routes Table"),
+				style.ResultHeaderStyle.Render("Routes Table"),
 				m.routesTable.View(),
 			),
 		)
@@ -413,7 +414,7 @@ func (m model) View() (view tea.View) {
 		routesBlock,
 	)
 
-	view.SetContent(appStyle.Width(m.width).Render(layout))
+	view.SetContent(style.AppStyle.Width(m.width).Render(layout))
 	return view
 }
 
