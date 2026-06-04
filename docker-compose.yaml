@@ -39,7 +39,6 @@ services:
       - INTERFACE=eth0,eth1
       - PORT=6040
       - LOG_LEVEL=DEBUG
-    command: [ "./mesh-node" ]
     cap_add:
       - NET_ADMIN
     privileged: true
@@ -61,8 +60,7 @@ services:
       - TZ=Europe/Moscow
       - ID=2
       - PORT=6040
-      - LOG_LEVEL=INFO
-    command: [ "./mesh-node" ]
+      - LOG_LEVEL=DEBUG
     cap_add:
       - NET_ADMIN
     privileged: true
@@ -84,8 +82,7 @@ services:
       - TZ=Europe/Moscow
       - ID=3
       - PORT=6040
-      - LOG_LEVEL=INFO
-    command: [ "./mesh-node" ]
+      - LOG_LEVEL=DEBUG
     cap_add:
       - NET_ADMIN
     privileged: true
@@ -108,8 +105,7 @@ services:
       - ID=4
       - INTERFACE=eth0
       - PORT=6040
-      - LOG_LEVEL=INFO
-    command: [ "./mesh-node" ]
+      - LOG_LEVEL=DEBUG
     cap_add:
       - NET_ADMIN
     privileged: true
@@ -131,8 +127,7 @@ services:
       - TZ=Europe/Moscow
       - ID=5
       - PORT=6040
-      - LOG_LEVEL=INFO
-    command: [ "./mesh-node" ]
+      - LOG_LEVEL=DEBUG
     cap_add:
       - NET_ADMIN
     privileged: true
@@ -154,8 +149,7 @@ services:
       - TZ=Europe/Moscow
       - ID=6
       - PORT=6040
-      - LOG_LEVEL=INFO
-    command: [ "./mesh-node" ]
+      - LOG_LEVEL=DEBUG
     cap_add:
       - NET_ADMIN
     privileged: true
@@ -179,9 +173,8 @@ services:
       - TZ=Europe/Moscow
       - ID=7
       - PORT=6040
-      - LOG_LEVEL=INFO
-      # - INTERFACE=eth0,eth1
-    command: [ "./mesh-node" ]
+      - LOG_LEVEL=DEBUG
+      - INTERFACE=eth0,eth1
     cap_add:
       - NET_ADMIN
     privileged: true
@@ -204,8 +197,7 @@ services:
       - ID=8
       - INTERFACE=eth0
       - PORT=6040
-      - LOG_LEVEL=INFO
-    command: [ "./mesh-node" ]
+      - LOG_LEVEL=DEBUG
     cap_add:
       - NET_ADMIN
     privileged: true
@@ -229,9 +221,8 @@ services:
       - TZ=Europe/Moscow
       - ID=9
       - PORT=6040
-      - LOG_LEVEL=INFO
+      - LOG_LEVEL=DEBUG
       - INTERFACE=eth0,eth1
-    command: [ "./mesh-node" ]
     cap_add:
       - NET_ADMIN
     privileged: true
@@ -256,8 +247,7 @@ services:
       - ID=10
       - INTERFACE=eth0,eth1
       - PORT=6040
-      - LOG_LEVEL=INFO
-    command: [ "./mesh-node" ]
+      - LOG_LEVEL=DEBUG
     cap_add:
       - NET_ADMIN
     privileged: true
@@ -279,8 +269,7 @@ services:
       - TZ=Europe/Moscow
       - ID=11
       - PORT=6040
-      - LOG_LEVEL=INFO
-    command: [ "./mesh-node" ]
+      - LOG_LEVEL=DEBUG
     cap_add:
       - NET_ADMIN
     privileged: true

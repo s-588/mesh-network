@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/netip"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,7 +50,7 @@ func (t *Table[T]) String() string {
 	for k := range t.m {
 		keys = append(keys, k)
 	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	slices.Sort(keys)
 
 	var sb strings.Builder
 	sb.Grow(512 * len(keys))

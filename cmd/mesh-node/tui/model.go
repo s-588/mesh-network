@@ -157,25 +157,15 @@ func (m *model) updateSizes(width, height int) {
 	// Внутренние размеры с учётом padding и border
 	innerWidth := m.leftWidth - 4 // padding + border
 
-	m.inputWidth = innerWidth - 4
-	if m.inputWidth > 50 {
-		m.inputWidth = 50
-	}
+	m.inputWidth = min(innerWidth-4, 50)
 
 	m.textareaWidth = innerWidth - 2
 
 	// Viewport
 	m.viewportWidth = m.rightWidth - 4
-	vpHeight := m.height - 16 // заголовки, отступы
-	if vpHeight < 8 {
-		vpHeight = 8
-	}
 	m.viewportHeight = m.topSectionHeight - 8
 
-	tableHeight := (m.height - m.topSectionHeight - 10) / 2
-	if tableHeight < 5 {
-		tableHeight = 5
-	}
+	tableHeight := max((m.height-m.topSectionHeight-10)/2, 5)
 	m.neighboursTable.SetHeight(tableHeight)
 	m.routesTable.SetHeight(tableHeight)
 }

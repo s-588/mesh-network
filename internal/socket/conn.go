@@ -611,6 +611,11 @@ func (t *Socket) handleMessage(m msg) {
 		senderAddr = m.addr.AddrPort()
 	}
 
+	if h.SrcID != 0 && h.SrcID != t.cfg.ID {
+		// This fix the problem of populating neighbours table with HELLO only
+		routing.UpdateNeighbour(h.SrcID, m.addr.AddrPort(), m.iface)
+	}
+
 	switch h.MsgType {
 	case protocol.HELLOMsgType:
 		var hello protocol.HELLO
@@ -806,6 +811,7 @@ func (t *Socket) StartNeighbourCollector(ctx context.Context) {
 			}
 
 			routesT := routing.RoutesTable.Snapshot()
+			fmt.Println(routesT)
 			for dstID, route := range routesT {
 
 				if slices.Contains(deadNeighbours, dstID) {

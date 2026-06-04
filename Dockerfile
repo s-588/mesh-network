@@ -20,4 +20,3 @@ RUN mkdir -p /root/mesh-network && chmod 777 /root/mesh-network
 EXPOSE 6040/udp
 
 ENTRYPOINT ["mesh-node"]
-CMD ["--interfaces", "eth0"]
