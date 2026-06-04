@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/s-588/mesh-network/cmd/mesh-node/style"
+	"github.com/s-588/mesh-network/cmd/style"
 )
 
 const IPC_PORT = ":6242"

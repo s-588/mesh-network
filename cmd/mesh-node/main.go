@@ -8,8 +8,8 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/s-588/mesh-network/cmd/mesh-node/cli"
-	"github.com/s-588/mesh-network/cmd/mesh-node/tui"
+	"github.com/s-588/mesh-network/cmd/cli"
+	"github.com/s-588/mesh-network/cmd/tui"
 	"github.com/s-588/mesh-network/internal/config"
 	"github.com/s-588/mesh-network/internal/logger"
 	"github.com/s-588/mesh-network/internal/socket"

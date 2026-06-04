@@ -11,7 +11,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/s-588/mesh-network/cmd/mesh-node/style"
+	"github.com/s-588/mesh-network/cmd/style"
 	"github.com/s-588/mesh-network/internal/routing"
 	"github.com/s-588/mesh-network/internal/socket"
 )
