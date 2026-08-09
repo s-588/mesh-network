@@ -84,6 +84,13 @@ func SetupSlog(cfg config.Config, tuiHandler slog.Handler) error {
 			Level: lvl,
 		}), h)
 	}
+	if cfg.IsDaemon {
+		h = slog.NewMultiHandler(slog.NewTextHandler(logFile, &slog.HandlerOptions{
+			Level: lvl,
+		}), slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: lvl,
+		}), h)
+	}
 	slog.SetDefault(slog.New(h))
 	return nil
 }
