@@ -48,7 +48,6 @@ func StartIPCServer(t *socket.Socket) {
 		fmt.Fprintf(w, "Запрос RREQ отправлен для поиска узла %d\n", dst)
 	})
 
-	// Команда получения таблицы маршрутов
 	mux.HandleFunc("/routes", func(w http.ResponseWriter, r *http.Request) {
 		routesMap := routing.RoutesTable.Snapshot()
 		var list []RouteDTO
@@ -66,7 +65,6 @@ func StartIPCServer(t *socket.Socket) {
 		json.NewEncoder(w).Encode(list)
 	})
 
-	// Команда получения таблицы соседей
 	mux.HandleFunc("/neighbours", func(w http.ResponseWriter, r *http.Request) {
 		neighMap := routing.NeighboursTable.Snapshot()
 		var list []NeighDTO

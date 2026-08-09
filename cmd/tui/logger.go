@@ -69,28 +69,22 @@ func (h *RouterLogHandler) Handle(ctx context.Context, r slog.Record) error {
 
 	var formatted strings.Builder
 
-	// === Special formatted logs ===
 	switch t := attrs["type"].(type) {
 	case logger.LogMsgType:
 		switch t {
 		case logger.LogTypeDATAReceived:
-			fmt.Println(attrs["type"])
 			formatted.WriteString(formatDataReceived(r, attrs))
 
 		case logger.LogTypeDATASent:
-			fmt.Println(attrs["type"])
 			formatted.WriteString(formatDataSent(r, attrs))
 
 		case logger.LogTypeRREQReceived, logger.LogTypeRREQSent:
-			fmt.Println(attrs["type"])
 			formatted.WriteString(formatRREQ(r, attrs))
 
 		case logger.LogTypeRREPReceived, logger.LogTypeRREPSent:
-			fmt.Println(attrs["type"])
 			formatted.WriteString(formatRREP(r, attrs))
 
 		case logger.LogTypeRRERReceived:
-			fmt.Println(attrs["type"])
 			formatted.WriteString(formatRRER(r, attrs))
 		}
 	default:
@@ -103,10 +97,6 @@ func (h *RouterLogHandler) Handle(ctx context.Context, r slog.Record) error {
 
 	return nil
 }
-
-// ─────────────────────────────────────────────────────────────
-// Helper formatters
-// ─────────────────────────────────────────────────────────────
 
 func safeNode(v any) string {
 	if v == nil {
@@ -154,21 +144,18 @@ func renderLevel(level slog.Level) string {
 
 func formatDataReceived(r slog.Record, attrs map[string]any) string {
 	return fmt.Sprintf(
-		"%s %s ← %s  %s",
+		"%s from %s:  %s",
 		renderPrefix(r, "DATA"),
-		nodeStyle.Render("Node"+fmt.Sprint(attrs["to"])),
-		nodeStyle.Render("Node"+fmt.Sprint(attrs["from"])),
+		nodeStyle.Render("Node "+fmt.Sprint(attrs["from"])),
 		valueStyle.Render(fmt.Sprintf("%q", attrs["payload"])),
 	)
 }
 
 func formatDataSent(r slog.Record, attrs map[string]any) string {
 	return fmt.Sprintf(
-		"%s %s → %s  %s  %s",
+		"%s to %s %s sent",
 		renderPrefix(r, "DATA"),
-		nodeStyle.Render("Node"+fmt.Sprint(attrs["from"])),
 		nodeStyle.Render("Node"+fmt.Sprint(attrs["to"])),
-		ifaceStyle.Render(fmt.Sprintf("via %v", attrs["interface"])),
 		valueStyle.Render(fmt.Sprintf("%q", attrs["payload"])),
 	)
 }
@@ -189,11 +176,9 @@ func formatRREQ(r slog.Record, attrs map[string]any) string {
 
 func formatRREP(r slog.Record, attrs map[string]any) string {
 	return fmt.Sprintf(
-		"%s %s ← %s  %s",
+		"%s to %s recieved",
 		renderPrefix(r, "RREP"),
 		nodeStyle.Render("Node"+fmt.Sprint(attrs["to"])),
-		nodeStyle.Render("Node"+fmt.Sprint(attrs["from"])),
-		ifaceStyle.Render(fmt.Sprintf("iface=%v", attrs["interface"])),
 	)
 }
 

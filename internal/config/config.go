@@ -33,7 +33,7 @@ var (
 	}
 )
 
-// Config struct contain all user variables under the users control
+// Config struct contain all variables under the users control
 type Config struct {
 	IsDaemon bool
 	LogConfig
@@ -44,7 +44,7 @@ type Config struct {
 type AppConfig struct {
 	ID            uint64
 	Port          uint16
-	Interfaces    []string
+	Interfaces    []string // interfaces on which app is listening
 	TTL           uint8
 	Lifetime      uint32 // lifetime for RREP and route table in seconds
 	HelloInterval int
