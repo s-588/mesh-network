@@ -106,8 +106,21 @@ func (t *Socket) setupInterface(name string) (*interfaceState, error) {
 		Control: func(network, address string, c syscall.RawConn) error {
 			var opErr error
 			err := c.Control(func(fd uintptr) {
-				_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-				opErr = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, name)
+				err = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+				if err != nil {
+					opErr = err
+					return
+				}
+				err = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+				if err != nil {
+					opErr = err
+					return
+				}
+				err = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, name)
+				if err != nil {
+					opErr = err
+					return
+				}
 			})
 			if err != nil {
 				return err
@@ -173,13 +186,19 @@ func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr netip.AddrPort, iface st
 		"ttl", msg.TTL,
 	)
 
-	// Creating reverse rounte for sending messages back
+	neighborID, found := routing.FindNeighbourByAddr(srcAddr.Addr())
+	if !found {
+		slog.Warn("Received RREQ from unknown neighbor", "ip", srcAddr.Addr())
+		neighborID = msg.SrcID
+	}
+
+	// Creating reverse route for sending messages back
 	addr, _ := netip.ParseAddrPort(srcAddr.String())
 	reverseRoute := routing.RouteEntry{
 		DstID:       msg.SrcID,
 		DstSeq:      msg.SrcSeq,
 		HopCount:    msg.HopCount + 1,
-		NextHopID:   msg.SrcID, // sending back to someone who sent or forwarded message
+		NextHopID:   neighborID,
 		NextHopAddr: addr,
 		LastUpdate:  time.Now(),
 		Lifetime:    time.Now().Add(time.Duration(t.cfg.Lifetime) * time.Second),
@@ -289,6 +308,7 @@ func (t *Socket) handleRREP(msg *protocol.RREP, from netip.AddrPort, iface strin
 		msg.HopCount++
 		data, _ := msg.MarshalBinary()
 		t.sendToAddr(data, route.NextHopAddr, route.Interface)
+		routing.AddPrecursor(msg.SrcID, route.NextHopID)
 		slog.Debug("Forwarding RREP", "to", msg.DstID, "via", route.NextHopAddr, "interface", route.Interface)
 	} else {
 		slog.Warn("No reverse route for RREP forwarding", "to", msg.DstID)
@@ -319,6 +339,7 @@ func (t *Socket) handleDATA(msg *protocol.DATA, from netip.AddrPort) {
 		// neighbour relaying on us to forward the message
 		// we need to add him to precursors to later send him RERR
 		routing.AddPrecursor(msg.DstID, neighbour)
+		slog.Debug("Precursor added successfully", "precursor", neighbour, "for_dest", msg.DstID)
 	} else {
 		slog.Warn("We don't know who send DATA message, neighbour not found",
 			"from", msg.SrcID,
@@ -418,6 +439,10 @@ func (t *Socket) SendData(dstID uint64, payload []byte) {
 	}
 
 	t.sendToAddr(bytes, route.NextHopAddr, route.Interface)
+	slog.Info("Message sent",
+		"type", logger.LogTypeDATASent,
+		"to", route.DstID,
+		"payload", string(dataMsg.Payload))
 }
 
 // SendRREQ initialize search of target and broadcast RREQ
@@ -609,11 +634,6 @@ func (t *Socket) handleMessage(m msg) {
 	var senderAddr netip.AddrPort
 	if m.addr != nil {
 		senderAddr = m.addr.AddrPort()
-	}
-
-	if h.SrcID != 0 && h.SrcID != t.cfg.ID {
-		// This fix the problem of populating neighbours table with HELLO only
-		routing.UpdateNeighbour(h.SrcID, m.addr.AddrPort(), m.iface)
 	}
 
 	switch h.MsgType {
@@ -811,24 +831,25 @@ func (t *Socket) StartNeighbourCollector(ctx context.Context) {
 			}
 
 			routesT := routing.RoutesTable.Snapshot()
-			fmt.Println(routesT)
 			for dstID, route := range routesT {
 
-				if slices.Contains(deadNeighbours, dstID) {
+				if slices.Contains(deadNeighbours, route.NextHopID) {
 
 					slog.Warn("route is broken because of the dead neighbour",
-						"dead_neighbour", dstID,
+						"dead_neighbour", route.NextHopID,
 						"to", route.DstID,
 						"interface", route.Interface,
 						"hops", route.HopCount,
 						"dst_seq", route.DstSeq,
 					)
 
-					routing.RoutesTable.Delete(dstID)
-
+					if len(route.Precursors) == 0 {
+						slog.Debug("Route broken, but NO PRECURSORS to send RERR", "unreachable_dst", dstID)
+					}
 					for precursorID := range route.Precursors {
 						t.SendRERR(precursorID, dstID, protocol.ErrLinkBreak)
 					}
+					routing.RoutesTable.Delete(dstID)
 				}
 			}
 		}
@@ -836,9 +857,9 @@ func (t *Socket) StartNeighbourCollector(ctx context.Context) {
 }
 
 func (t *Socket) SendRERR(precursor uint64, unreachableID uint64, errCode protocol.ErrorCode) {
-	route, found := routing.NeighboursTable.Get(precursor)
+	neighbor, found := routing.NeighboursTable.Get(precursor)
 	if !found {
-		slog.Error("Cannot send RERR, route to precursor was not found",
+		slog.Error("Cannot send RERR, route to precursor (neighbour) was not found",
 			"precursor", precursor)
 		return
 	}
@@ -848,8 +869,8 @@ func (t *Socket) SendRERR(precursor uint64, unreachableID uint64, errCode protoc
 			MsgType:   protocol.RERRMsgType,
 			SrcID:     t.cfg.ID,
 			DstID:     precursor,
-			SrcIP:     t.links[route.Interface].addr,
-			DstIP:     route.Addr.Addr(),
+			SrcIP:     t.links[neighbor.Interface].addr,
+			DstIP:     neighbor.Addr.Addr(),
 			Timestamp: uint64(time.Now().UnixMilli()),
 			TTL:       1, // RERR is strictly hop-by-hop
 		},
@@ -869,7 +890,7 @@ func (t *Socket) SendRERR(precursor uint64, unreachableID uint64, errCode protoc
 		return
 	}
 
-	t.sendToAddr(data, route.Addr, route.Interface)
+	t.sendToAddr(data, neighbor.Addr, neighbor.Interface)
 }
 
 func (t *Socket) GetSeqNum() uint32 {
