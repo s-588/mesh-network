@@ -217,7 +217,7 @@ func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr netip.AddrPort, iface st
 			"hops", msg.HopCount,
 			"ttl", msg.TTL,
 		)
-		t.SendRREP(msg, addr)
+		t.SendRREP(msg, addr, iface)
 		return
 	}
 
@@ -226,13 +226,25 @@ func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr netip.AddrPort, iface st
 		msg.TTL--
 		msg.HopCount++
 
-		data, err := msg.MarshalBinary()
-		if err != nil {
-			slog.Error("Marshal RREQ failed", "err", err)
-			return
-		}
+		for name, link := range t.links {
+			msg.SrcIP = link.addr
 
-		t.Broadcast(data)
+			data, err := msg.MarshalBinary()
+			if err != nil {
+				slog.Error("Marshal RREQ failed", "err", err)
+				return
+			}
+
+			bcastAddr := &net.UDPAddr{
+				IP:   net.IPv4bcast,
+				Port: int(t.port),
+			}
+
+			_, err = link.conn.WriteToUDP(data, bcastAddr)
+			if err != nil {
+				slog.Warn("RREQ broadcast failed", "interface", name, "error", err)
+			}
+		}
 
 		slog.Info("RREQ forwarded",
 			"from", msg.SrcID,
@@ -397,19 +409,12 @@ func (t *Socket) SendData(dstID uint64, payload []byte) {
 		return
 	}
 
-	// TODO: wtf is this
-	var srcIP netip.Addr
-	for _, link := range t.links {
-		srcIP = link.addr
-		break
-	}
-
 	t.seqNum.Add(1)
 	opts := protocol.DATAOpts{
 		HeaderOpts: protocol.HeaderOpts{
 			MsgType:   protocol.DATAMsgType,
 			Timestamp: uint64(time.Now().Unix()),
-			SrcIP:     srcIP,
+			SrcIP:     t.links[route.Interface].addr,
 			DstIP:     route.NextHopAddr.Addr(),
 			SrcID:     t.cfg.ID,
 			DstID:     dstID,
@@ -481,21 +486,33 @@ func (t *Socket) SendRREQ(targetID uint64) {
 		return
 	}
 
-	data, err := rreq.MarshalBinary()
-	if err != nil {
-		slog.Error("Can't marshal RREQ", "error", err,
-			"from", srcIP,
-			"to", targetID,
-		)
+	for name, link := range t.links {
+		rreq.SrcIP = link.addr
 
-		return
+		data, err := rreq.MarshalBinary()
+		if err != nil {
+			slog.Error("Can't marshal RREQ", "error", err,
+				"from", srcIP,
+				"to", targetID,
+			)
+
+			return
+		}
+
+		bcastAddr := &net.UDPAddr{
+			IP:   net.IPv4bcast,
+			Port: int(t.port),
+		}
+
+		_, err = link.conn.WriteToUDP(data, bcastAddr)
+		if err != nil {
+			slog.Warn("RREQ broadcast failed", "interface", name, "error", err)
+		}
 	}
-
-	t.Broadcast(data)
 }
 
 // SendRREP send RREP to destination
-func (t *Socket) SendRREP(msg *protocol.RREQ, dst netip.AddrPort) {
+func (t *Socket) SendRREP(msg *protocol.RREQ, dst netip.AddrPort, iface string) {
 
 	mySeq := t.seqNum.Add(1)
 
@@ -503,13 +520,6 @@ func (t *Socket) SendRREP(msg *protocol.RREQ, dst netip.AddrPort) {
 		"to", msg.SrcID,
 		"next_hop", dst,
 	)
-
-	// TODO: probably need to change to interface from where RREQ come
-	var srcIP netip.Addr
-	for _, link := range t.links {
-		srcIP = link.addr
-		break
-	}
 
 	// In RREP:
 	// msg.SrcID it is us, the target of the search
@@ -519,7 +529,7 @@ func (t *Socket) SendRREP(msg *protocol.RREQ, dst netip.AddrPort) {
 			MsgType:   protocol.RREPMsgType,
 			SrcID:     t.cfg.ID,
 			DstID:     msg.SrcID,
-			SrcIP:     srcIP,
+			SrcIP:     msg.SrcIP,
 			DstIP:     dst.Addr(),
 			Timestamp: uint64(time.Now().UnixMilli()),
 			TTL:       t.cfg.TTL,
@@ -552,16 +562,12 @@ func (t *Socket) SendRREP(msg *protocol.RREQ, dst netip.AddrPort) {
 		Port: int(dst.Port()),
 	}
 
-	// TODO: change to interface where RREQ comes from
-	for _, link := range t.links {
-		_, err := link.conn.WriteToUDP(data, udpAddr)
-		if err != nil {
-			slog.Error("Can't send RREP", "error", err,
-				"to", msg.SrcID,
-				"next_hop", dst,
-			)
-		}
-		break
+	_, err = t.links[iface].conn.WriteToUDP(data, udpAddr)
+	if err != nil {
+		slog.Error("Can't send RREP", "error", err,
+			"to", msg.SrcID,
+			"next_hop", dst,
+		)
 	}
 }
 
@@ -726,24 +732,9 @@ func (t *Socket) handleHELLO(msg *protocol.HELLO, from netip.AddrPort, iface str
 	routing.UpdateNeighbour(msg.SrcID, from, iface)
 }
 
-func (t *Socket) Broadcast(data []byte) {
-	for name, ifaceData := range t.links {
-		addr := &net.UDPAddr{
-			IP:   net.IPv4bcast,
-			Port: int(t.port),
-		}
-		_, err := ifaceData.conn.WriteToUDP(data, addr)
-		if err != nil {
-			slog.Error("Broadcast failed", "interface", name, "error", err)
-		}
-	}
-}
-
 func (t *Socket) broadcastHello() error {
 	now := time.Now().UnixMilli()
 
-	// TODO: refactor Broadcast and broadcastHello functions
-	// they do the same thing but Broadcast do not set SrcIP
 	for name, link := range t.links {
 		opts := protocol.HELLOOpts{
 			HeaderOpts: protocol.HeaderOpts{
@@ -899,7 +890,7 @@ func (t *Socket) GetSeqNum() uint32 {
 
 func (t *Socket) GetInterfaces() []string {
 	iface := make([]string, 0, len(t.links))
-	for v := range maps.Values(t.links) {
+	for _, v := range (t.links) {
 		iface = append(iface, v.name)
 	}
 	return iface
