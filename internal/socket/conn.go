@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net"
 	"net/netip"
 	"slices"
@@ -19,10 +18,11 @@ import (
 	"github.com/s-588/mesh-network/pkg/logger"
 )
 
-// Socket
+// Socket controls all connections and communication between nodes
 type Socket struct {
-	port  uint16
-	cfg   config.AppConfig
+	port uint16
+	cfg  config.AppConfig
+	// links contains interface name as a key and interface data
 	links map[string]*interfaceState
 
 	seenMu    sync.Mutex
@@ -39,6 +39,7 @@ type Socket struct {
 	seqNum atomic.Uint32
 }
 
+// interfaceState contains all data about network interface
 type interfaceState struct {
 	name  string
 	iface *net.Interface
@@ -46,12 +47,14 @@ type interfaceState struct {
 	addr  netip.Addr
 }
 
+// msg contains any real message, address of sender and interface from where it come
 type msg struct {
 	data  []byte
 	addr  *net.UDPAddr
 	iface string
 }
 
+// NewSocket function configures network interfaces and creates Linux sockets.
 func NewSocket(cfg config.AppConfig) (*Socket, error) {
 	t := &Socket{
 		cfg:          cfg,
@@ -77,6 +80,8 @@ func NewSocket(cfg config.AppConfig) (*Socket, error) {
 	return t, nil
 }
 
+// setupInterface method parse physical interfaces, configure and links them
+// to the Linux sockets.
 func (t *Socket) setupInterface(name string) (*interfaceState, error) {
 	iface, err := net.InterfaceByName(name)
 	if err != nil {
@@ -106,16 +111,21 @@ func (t *Socket) setupInterface(name string) (*interfaceState, error) {
 		Control: func(network, address string, c syscall.RawConn) error {
 			var opErr error
 			err := c.Control(func(fd uintptr) {
+				// SO_BROADCAST was added because Linux don't allow broadcast without this flag.
+				// Docker's virtualization don't need it, though.
 				err = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 				if err != nil {
 					opErr = err
 					return
 				}
+				//
 				err = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 				if err != nil {
 					opErr = err
 					return
 				}
+				// SO_BINDTODEVICE let socket bind to a specific interface.
+				// This allows us to use only selected interfaces
 				err = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, name)
 				if err != nil {
 					opErr = err
@@ -129,6 +139,7 @@ func (t *Socket) setupInterface(name string) (*interfaceState, error) {
 		},
 	}
 
+	// 0.0.0.0 is used because it defines what packets will be accepted
 	lp, err := lc.ListenPacket(context.Background(), "udp4", fmt.Sprintf("0.0.0.0:%d", t.port))
 	if err != nil {
 		return nil, err
@@ -142,6 +153,8 @@ func (t *Socket) setupInterface(name string) (*interfaceState, error) {
 	}, nil
 }
 
+// handleRREQ method parses RREQ, broadcast forward if it ain't for us 
+// or create RREP and send back.
 func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr netip.AddrPort, iface string) {
 	if msg.SrcID == t.cfg.ID {
 		slog.Debug("RREQ from myself declined",
@@ -261,6 +274,7 @@ func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr netip.AddrPort, iface st
 	}
 }
 
+// handleRREP method parses RREP, updates route table and send forward if it not for us.
 func (t *Socket) handleRREP(msg *protocol.RREP, from netip.AddrPort, iface string) {
 	neighborID, found := routing.FindNeighbourByAddr(from.Addr())
 	if !found {
@@ -327,6 +341,7 @@ func (t *Socket) handleRREP(msg *protocol.RREP, from netip.AddrPort, iface strin
 	}
 }
 
+// handleDATA method parses DATA message or send forward if it not for us.
 func (t *Socket) handleDATA(msg *protocol.DATA, from netip.AddrPort) {
 	if msg.DstID == t.cfg.ID {
 		slog.Info("Message recieved",
@@ -393,6 +408,8 @@ func (t *Socket) handleDATA(msg *protocol.DATA, from netip.AddrPort) {
 	}
 }
 
+// SendData method marshal payload and send it to dstID if path exists.
+// If path is not exists it will save message in Socket.pendingMsgs and initiate route search.
 func (t *Socket) SendData(dstID uint64, payload []byte) {
 	route, found := routing.FindRoute(dstID)
 
@@ -571,6 +588,7 @@ func (t *Socket) SendRREP(msg *protocol.RREQ, dst netip.AddrPort, iface string) 
 	}
 }
 
+// sendToAddr method send data to addr through iface 
 func (t *Socket) sendToAddr(data []byte, addr netip.AddrPort, iface string) {
 	udpAddr := &net.UDPAddr{
 		IP:   addr.Addr().AsSlice(),
@@ -588,6 +606,7 @@ func (t *Socket) sendToAddr(data []byte, addr netip.AddrPort, iface string) {
 	}
 }
 
+// Start method initialize socket listening
 func (t *Socket) Start(ctx context.Context) {
 	for name, link := range t.links {
 		go t.listenOnConn(ctx, name, link.conn)
@@ -595,6 +614,7 @@ func (t *Socket) Start(ctx context.Context) {
 	slog.Info("Transport started")
 }
 
+// listenOnConn method wait for a data came from conn and send it to Socket.incomingMsgs
 func (t *Socket) listenOnConn(ctx context.Context, name string, conn *net.UDPConn) {
 	buf := make([]byte, 4096)
 	for {
@@ -616,6 +636,7 @@ func (t *Socket) listenOnConn(ctx context.Context, name string, conn *net.UDPCon
 	}
 }
 
+// ProcessMessages method handle messages from Socket.incomingMsgs
 func (t *Socket) ProcessMessages(ctx context.Context) {
 	for {
 		select {
@@ -627,6 +648,7 @@ func (t *Socket) ProcessMessages(ctx context.Context) {
 	}
 }
 
+// handleMessage method proccess all types of messages
 func (t *Socket) handleMessage(m msg) {
 	if len(m.data) < protocol.HeaderSize {
 		return
@@ -693,6 +715,7 @@ func (t *Socket) handleMessage(m msg) {
 	}
 }
 
+// handleRERR method proccess RERR and delete broken paths
 func (t *Socket) handleRERR(msg *protocol.RERR) {
 	slog.Info("Received RERR",
 		"type", logger.LogTypeRRERReceived,
@@ -728,10 +751,12 @@ func (t *Socket) handleRERR(msg *protocol.RERR) {
 	}
 }
 
+// handleHELLO method proccess HELLO messages
 func (t *Socket) handleHELLO(msg *protocol.HELLO, from netip.AddrPort, iface string) {
 	routing.UpdateNeighbour(msg.SrcID, from, iface)
 }
 
+// broadcastHello method broadcast HELLO message over all interfaces
 func (t *Socket) broadcastHello() error {
 	now := time.Now().UnixMilli()
 
@@ -774,6 +799,7 @@ func (t *Socket) broadcastHello() error {
 	return nil
 }
 
+// StartHelloSender method starts goroutine that send HELLO every t.cfg.HelloInterval seconds.
 func (t *Socket) StartHelloSender(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(t.cfg.HelloInterval) * time.Second)
 	defer ticker.Stop()
@@ -792,6 +818,7 @@ func (t *Socket) StartHelloSender(ctx context.Context) {
 	}
 }
 
+// StartNeighbourCollector method start goroutine that delete dead neighbours
 func (t *Socket) StartNeighbourCollector(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(t.cfg.HelloInterval+1) * time.Second)
 	defer ticker.Stop()
@@ -847,6 +874,7 @@ func (t *Socket) StartNeighbourCollector(ctx context.Context) {
 	}
 }
 
+// SendRERR method send RERR to precursor.
 func (t *Socket) SendRERR(precursor uint64, unreachableID uint64, errCode protocol.ErrorCode) {
 	neighbor, found := routing.NeighboursTable.Get(precursor)
 	if !found {
@@ -884,13 +912,15 @@ func (t *Socket) SendRERR(precursor uint64, unreachableID uint64, errCode protoc
 	t.sendToAddr(data, neighbor.Addr, neighbor.Interface)
 }
 
+// GetSeqNum method return sequence number
 func (t *Socket) GetSeqNum() uint32 {
 	return t.seqNum.Load()
 }
 
+// GetInterfaces method return all interfaces
 func (t *Socket) GetInterfaces() []string {
 	iface := make([]string, 0, len(t.links))
-	for _, v := range (t.links) {
+	for _, v := range t.links {
 		iface = append(iface, v.name)
 	}
 	return iface
@@ -900,7 +930,6 @@ func (t *Socket) GetMessages() []string {
 	t.inboxMu.RLock()
 	defer t.inboxMu.RUnlock()
 
-	// Возвращаем копию среза, чтобы избежать состояния гонки
 	result := make([]string, len(t.inboxMsgs))
 	copy(result, t.inboxMsgs)
 	return result
