@@ -1,3 +1,4 @@
+// package socket contains all logic of inter node communication
 package socket
 
 import (
@@ -108,7 +109,7 @@ func (t *Socket) setupInterface(name string) (*interfaceState, error) {
 	}
 
 	lc := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
+		Control: func(_, address string, c syscall.RawConn) error {
 			var opErr error
 			err := c.Control(func(fd uintptr) {
 				// SO_BROADCAST was added because Linux don't allow broadcast without this flag.
@@ -153,7 +154,7 @@ func (t *Socket) setupInterface(name string) (*interfaceState, error) {
 	}, nil
 }
 
-// handleRREQ method parses RREQ, broadcast forward if it ain't for us 
+// handleRREQ method parses RREQ, broadcast forward if it ain't for us
 // or create RREP and send back.
 func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr netip.AddrPort, iface string) {
 	if msg.SrcID == t.cfg.ID {
@@ -234,7 +235,7 @@ func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr netip.AddrPort, iface st
 		return
 	}
 
-	// Broadcast RREQ because we are not the reciever
+	// Broadcast RREQ because we are not the receiver
 	if msg.TTL > 1 {
 		msg.TTL--
 		msg.HopCount++
@@ -282,7 +283,7 @@ func (t *Socket) handleRREP(msg *protocol.RREP, from netip.AddrPort, iface strin
 		neighborID = msg.SrcID // Fallback, but this shouldn't happen
 	}
 
-	slog.Info("RREP recieved",
+	slog.Info("RREP received",
 		"from", msg.SrcID,
 		"to", msg.DstID,
 		"dst_seq", msg.DstSeq,
@@ -344,7 +345,7 @@ func (t *Socket) handleRREP(msg *protocol.RREP, from netip.AddrPort, iface strin
 // handleDATA method parses DATA message or send forward if it not for us.
 func (t *Socket) handleDATA(msg *protocol.DATA, from netip.AddrPort) {
 	if msg.DstID == t.cfg.ID {
-		slog.Info("Message recieved",
+		slog.Info("Message received",
 			"type", logger.LogTypeDATAReceived,
 			"from", msg.SrcID,
 			"payload", string(msg.Payload))
@@ -588,7 +589,7 @@ func (t *Socket) SendRREP(msg *protocol.RREQ, dst netip.AddrPort, iface string) 
 	}
 }
 
-// sendToAddr method send data to addr through iface 
+// sendToAddr method send data to addr through iface
 func (t *Socket) sendToAddr(data []byte, addr netip.AddrPort, iface string) {
 	udpAddr := &net.UDPAddr{
 		IP:   addr.Addr().AsSlice(),
@@ -648,7 +649,7 @@ func (t *Socket) ProcessMessages(ctx context.Context) {
 	}
 }
 
-// handleMessage method proccess all types of messages
+// handleMessage method process all types of messages
 func (t *Socket) handleMessage(m msg) {
 	if len(m.data) < protocol.HeaderSize {
 		return
@@ -715,7 +716,7 @@ func (t *Socket) handleMessage(m msg) {
 	}
 }
 
-// handleRERR method proccess RERR and delete broken paths
+// handleRERR method process RERR and delete broken paths
 func (t *Socket) handleRERR(msg *protocol.RERR) {
 	slog.Info("Received RERR",
 		"type", logger.LogTypeRRERReceived,
@@ -751,7 +752,7 @@ func (t *Socket) handleRERR(msg *protocol.RERR) {
 	}
 }
 
-// handleHELLO method proccess HELLO messages
+// handleHELLO method process HELLO messages
 func (t *Socket) handleHELLO(msg *protocol.HELLO, from netip.AddrPort, iface string) {
 	routing.UpdateNeighbour(msg.SrcID, from, iface)
 }
@@ -926,6 +927,7 @@ func (t *Socket) GetInterfaces() []string {
 	return iface
 }
 
+// GetMessages method
 func (t *Socket) GetMessages() []string {
 	t.inboxMu.RLock()
 	defer t.inboxMu.RUnlock()

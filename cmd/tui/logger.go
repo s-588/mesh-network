@@ -86,6 +86,10 @@ func (h *RouterLogHandler) Handle(ctx context.Context, r slog.Record) error {
 
 		case logger.LogTypeRRERReceived:
 			formatted.WriteString(formatRRER(r, attrs))
+		case logger.LogTypeRRERSent:
+			formatted.WriteString(formatRRER(r, attrs))
+		case logger.LogTypeDefault:
+			formatted.WriteString(formatDefault(r, attrs))
 		}
 	default:
 		formatted.WriteString(formatDefault(r, attrs))
@@ -96,20 +100,6 @@ func (h *RouterLogHandler) Handle(ctx context.Context, r slog.Record) error {
 	}
 
 	return nil
-}
-
-func safeNode(v any) string {
-	if v == nil {
-		return "Unknown"
-	}
-	return fmt.Sprint(v)
-}
-
-func safeIface(v any) string {
-	if v == nil {
-		return "?"
-	}
-	return fmt.Sprint(v)
 }
 
 func renderPrefix(r slog.Record, category string) string {
@@ -176,7 +166,7 @@ func formatRREQ(r slog.Record, attrs map[string]any) string {
 
 func formatRREP(r slog.Record, attrs map[string]any) string {
 	return fmt.Sprintf(
-		"%s to %s recieved",
+		"%s to %s received",
 		renderPrefix(r, "RREP"),
 		nodeStyle.Render("Node"+fmt.Sprint(attrs["to"])),
 	)
@@ -232,8 +222,6 @@ func getAttr(attrs map[string]any, key string, defaultVal any) any {
 	return defaultVal
 }
 
-// ─────────────────────────────────────────────────────────────
 // slog.Handler boilerplate
-// ─────────────────────────────────────────────────────────────
-func (h *RouterLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler { return h }
-func (h *RouterLogHandler) WithGroup(name string) slog.Handler       { return h }
+func (h *RouterLogHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *RouterLogHandler) WithGroup(_ string) slog.Handler       { return h }

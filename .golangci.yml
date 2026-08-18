@@ -1,0 +1,54 @@
+version: "2"
+
+linters:
+  disable-all: true
+  enable:
+    # Core correctness
+    - errcheck
+    - govet
+    - staticcheck
+    - modernize
+    - ineffassign
+    - unused
+
+    # Backend / networking
+    - gosec
+    - bodyclose
+    - noctx
+    - contextcheck
+    - errorlint
+    - exhaustive
+
+    # Style / maintainability
+    - revive
+    - misspell
+    - unparam
+    - prealloc
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  govet:
+    enable-all: true
+  revive:
+    severity: warning
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: error-return
+      - name: error-strings
+      - name: exported
+      - name: package-comments
+  gosec:
+    severity: medium
+    confidence: medium
+
+run:
+  timeout: 5m
+  tests: true
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0

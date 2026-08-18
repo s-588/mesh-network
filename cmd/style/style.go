@@ -1,3 +1,4 @@
+// package style contains lipgloss styles for other packages.
 package style
 
 import (

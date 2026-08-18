@@ -1,3 +1,5 @@
+// package logger contains logic for setting up log/slog logger and
+// configuring output log file.
 package logger
 
 import (
@@ -95,6 +97,7 @@ func SetupSlog(cfg config.Config, tuiHandler slog.Handler) error {
 	return nil
 }
 
+// PrettyHandler struct used for displaying logs in a BubbleTea TUI in a nice way.
 type PrettyHandler struct {
 	opts slog.HandlerOptions
 	out  io.Writer

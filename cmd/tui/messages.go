@@ -22,7 +22,7 @@ func listenForLogs(logChan <-chan string) tea.Cmd {
 type tablesRefreshMsg struct{}
 
 func refreshTablesCmd() tea.Cmd {
-	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+	return tea.Tick(5*time.Second, func(_ time.Time) tea.Msg {
 		return tablesRefreshMsg{}
 	})
 }

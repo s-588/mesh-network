@@ -12,6 +12,7 @@ import (
 	"github.com/s-588/mesh-network/internal/socket"
 )
 
+// StartIPCServer function starts node's IPC server to communicate with CLI.
 func StartIPCServer(t *socket.Socket) {
 	mux := http.NewServeMux()
 
@@ -29,7 +30,7 @@ func StartIPCServer(t *socket.Socket) {
 		fmt.Fprintf(w, "Message added to queue for node %d\n", dst)
 	})
 
-	mux.HandleFunc("/messages", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/messages", func(w http.ResponseWriter, _ *http.Request) {
 		msgs := t.GetMessages()
 		data, _ := json.Marshal(msgs)
 		w.Header().Set("Content-Type", "application/json")
@@ -48,9 +49,9 @@ func StartIPCServer(t *socket.Socket) {
 		fmt.Fprintf(w, "Запрос RREQ отправлен для поиска узла %d\n", dst)
 	})
 
-	mux.HandleFunc("/routes", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/routes", func(w http.ResponseWriter, _ *http.Request) {
 		routesMap := routing.RoutesTable.Snapshot()
-		var list []RouteDTO
+		list := make([]RouteDTO,0, len(routesMap))
 		for _, v := range routesMap {
 			list = append(list, RouteDTO{
 				DstID:   v.DstID,
@@ -65,9 +66,9 @@ func StartIPCServer(t *socket.Socket) {
 		json.NewEncoder(w).Encode(list)
 	})
 
-	mux.HandleFunc("/neighbours", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/neighbours", func(w http.ResponseWriter, _ *http.Request) {
 		neighMap := routing.NeighboursTable.Snapshot()
-		var list []NeighDTO
+		list :=make([]NeighDTO,0, len(neighMap))
 		for _, v := range neighMap {
 			list = append(list, NeighDTO{
 				ID:       v.ID,
@@ -81,8 +82,8 @@ func StartIPCServer(t *socket.Socket) {
 		json.NewEncoder(w).Encode(list)
 	})
 
-	slog.Info("IPC server started", "port", IPC_PORT)
-	if err := http.ListenAndServe("127.0.0.1"+IPC_PORT, mux); err != nil {
+	slog.Info("IPC server started", "port", IPCPort)
+	if err := http.ListenAndServe("127.0.0.1"+IPCPort, mux); err != nil {
 		slog.Error("IPC server crashed", "error", err)
 	}
 }

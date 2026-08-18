@@ -1,3 +1,5 @@
+// package config parses environment variables or .env file into a Config struct
+// for other packages to use.
 package config
 
 import (
@@ -81,7 +83,7 @@ func NewConfig() (Config, error) {
 		return cfg, fmt.Errorf("apply environment variables: %w", err)
 	}
 
-	if *flagIsDaemon != false {
+	if *flagIsDaemon {
 		cfg.IsDaemon = bool(*flagIsDaemon)
 	}
 
@@ -119,6 +121,9 @@ func NewConfig() (Config, error) {
 	}
 
 	if cfg.ID == 0 {
+		// Use math/rand less secure than crypto/rand but we don't need
+		// this security for a random number because it will be
+		// randomized by Snowflake generator
 		node, err := snowflake.NewNode(rand.Int63n(1024))
 		if err != nil {
 			return cfg, fmt.Errorf("creation snowflake id failed: %w", err)
@@ -212,11 +217,11 @@ func applyEnv(cfg *Config) error {
 func (cfg *Config) String() string {
 	sb := strings.Builder{}
 	sb.WriteString("Configuration:\n")
-	sb.WriteString(fmt.Sprintf("\tIsDaemon: %t\n", cfg.IsDaemon))
+	fmt.Fprintf(&sb, "\tIsDaemon: %t\n", cfg.IsDaemon)
 
 	sb.WriteString("\tApplication configuration:\n")
-	sb.WriteString(fmt.Sprintf("\t\tID: %d\n", cfg.ID))
-	sb.WriteString(fmt.Sprintf("\t\tPort: %d\n", cfg.Port))
+	fmt.Fprintf(&sb, "\t\tID: %d\n", cfg.ID)
+	fmt.Fprintf(&sb, "\t\tPort: %d\n", cfg.Port)
 	sb.WriteString("\t\tInterfaces: ")
 	for i, iface := range cfg.Interfaces {
 		if i > 0 {
@@ -225,11 +230,11 @@ func (cfg *Config) String() string {
 		sb.WriteString(iface)
 	}
 	sb.WriteString("\n")
-	sb.WriteString(fmt.Sprintf("\t\tTTL: %d\n", cfg.TTL))
-	sb.WriteString(fmt.Sprintf("\t\tLifetime: %d seconds\n", cfg.Lifetime))
+	fmt.Fprintf(&sb, "\t\tTTL: %d\n", cfg.TTL)
+	fmt.Fprintf(&sb, "\t\tLifetime: %d seconds\n", cfg.Lifetime)
 
 	sb.WriteString("\tLogger configuration:\n")
-	sb.WriteString(fmt.Sprintf("\t\tLevel: %s\n", cfg.Level))
-	sb.WriteString(fmt.Sprintf("\t\tLogFile: %s\n", cfg.LogFile))
+	fmt.Fprintf(&sb, "\t\tLevel: %s\n", cfg.Level)
+	fmt.Fprintf(&sb, "\t\tLogFile: %s\n", cfg.LogFile)
 	return sb.String()
 }

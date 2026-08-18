@@ -1,7 +1,9 @@
+// messages.go contains AODV message structs
 package protocol
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net/netip"
 )
@@ -58,14 +60,6 @@ const (
 		8 // UnreachableDstID uint64
 )
 
-// Message interface implement methods for general functions that will send messages.
-// SetHeader function is required because SrcIP must be set according to interface IP before sending.
-type Message interface {
-	SetHeader(Header)
-	MarshalBinary() ([]byte, error)
-	UnmarshalBinary(data []byte) error
-}
-
 // Header struct contains general fields that all other messages must have.
 // If the Header struct need to be changed HeaderSize constanta must be updated.
 type Header struct {
@@ -78,6 +72,7 @@ type Header struct {
 	DstIP     netip.Addr // IPv4 address of intended recipient.
 }
 
+// HeaderOpts struct contains general fields that all messages have
 type HeaderOpts struct {
 	MsgType      MsgType
 	SrcIP, DstIP netip.Addr
@@ -93,10 +88,11 @@ func NewHeader(opts HeaderOpts) (*Header, error) {
 		return nil, fmt.Errorf("source IP must be IPv4: %s", opts.SrcIP.String())
 	}
 	if !opts.DstIP.IsValid() || !opts.DstIP.Is4() {
-		return nil, fmt.Errorf("destination IP must be IPv4: %s", opts.SrcIP.String())
+		return nil, errors.Join(ErrProtocolViolation,
+			fmt.Errorf("destination IP must be IPv4: %s", opts.SrcIP.String()))
 	}
 	if !opts.MsgType.IsValid() {
-
+		return nil, ErrProtocolViolation
 	}
 	h := &Header{
 		MsgType:   opts.MsgType,
@@ -143,7 +139,6 @@ func (h *Header) MarshalBinary() ([]byte, error) {
 
 	dstIP := h.DstIP.As4()
 	copy(result[offset:], dstIP[:])
-	offset += 4
 
 	return result, nil
 }
@@ -190,6 +185,7 @@ type HELLO struct {
 	Port uint16 // Port where nodes should send messages.
 }
 
+// HELLOOpts struct contains Header and HELLO specific fields.
 type HELLOOpts struct {
 	HeaderOpts
 	Port uint16
@@ -213,10 +209,6 @@ func NewHELLO(opts HELLOOpts) (*HELLO, error) {
 	}
 
 	return hello, nil
-}
-
-func (m *HELLO) SetHeader(h Header) {
-	m.Header = h
 }
 
 // MarshalBinary encodes HELLO into a byte slice.
@@ -286,10 +278,6 @@ func NewRREQ(opts RREQOpts) (*RREQ, error) {
 	}
 
 	return rreq, nil
-}
-
-func (m *RREQ) SetHeader(h Header) {
-	m.Header = h
 }
 
 // MarshalBinary encodes RREQ into a byte slice.
@@ -380,10 +368,6 @@ func NewRREP(opts RREPOpts) (*RREP, error) {
 	return rrep, nil
 }
 
-func (m *RREP) SetHeader(h Header) {
-	m.Header = h
-}
-
 // MarshalBinary encodes RREP into a byte slice.
 func (m *RREP) MarshalBinary() ([]byte, error) {
 	headerBytes, err := m.Header.MarshalBinary()
@@ -461,10 +445,6 @@ func NewRERR(opts RERROpts) (*RERR, error) {
 	}
 
 	return rerr, nil
-}
-
-func (m *RERR) SetHeader(h Header) {
-	m.Header = h
 }
 
 // MarshalBinary encodes RERR into a byte slice.
@@ -550,10 +530,6 @@ func NewDATA(opts DATAOpts) (*DATA, error) {
 	}
 
 	return data, nil
-}
-
-func (m *DATA) SetHeader(h Header) {
-	m.Header = h
 }
 
 // MarshalBinary encodes DATA into a byte slice.

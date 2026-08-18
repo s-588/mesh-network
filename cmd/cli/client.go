@@ -1,3 +1,5 @@
+// package cli contains client code for command line.
+// It uses HTTP requests to node's IPC server to retrieve information.
 package cli
 
 import (
@@ -15,13 +17,13 @@ import (
 	"github.com/s-588/mesh-network/cmd/style"
 )
 
-// IPC_PORT is a port where active local node is listening.
-const IPC_PORT = ":6242"
+// IPCPort is a port where active local node is listening.
+const IPCPort = ":6242"
 
 var (
 	baseURL = url.URL{
 		Scheme: "http",
-		Host:   net.JoinHostPort("127.0.0.1", IPC_PORT),
+		Host:   net.JoinHostPort("127.0.0.1", IPCPort),
 	}
 
 	ErrNodeUnattainable = errors.New("can't connect to background process. Is node started?")
@@ -38,7 +40,9 @@ func SendRREQ(dst int64) (string, error) {
 	if err != nil {
 		return "", ErrNodeUnattainable
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	body, _ := io.ReadAll(resp.Body)
 	return string(body), nil
 }
@@ -54,20 +58,24 @@ func SendMsg(dst int64, msg string) (string, error) {
 	if err != nil {
 		return "", ErrNodeUnattainable
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	body, _ := io.ReadAll(resp.Body)
 	return string(body), nil
 }
 
-// GetMsg recieve messages from node's IPC server.
+// GetMsg method receive messages from node's IPC server.
 func GetMsgs() (string, error) {
 	baseURL.Path = "/messages"
 	resp, err := http.Get(baseURL.String())
 	if err != nil {
 		return "", ErrNodeUnattainable
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	var msgs []string
 	if err := json.NewDecoder(resp.Body).Decode(&msgs); err != nil {
@@ -80,6 +88,7 @@ func GetMsgs() (string, error) {
 	return strings.Join(msgs, "\n"), nil
 }
 
+// GetNeighbours method receive neighbours data from node's IPC server.
 func GetNeighbours() (string, error) {
 	s := strings.Builder{}
 	baseURL.Scheme = "/neighbours"
@@ -87,7 +96,9 @@ func GetNeighbours() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	var neighbours []NeighDTO
 	if err := json.NewDecoder(resp.Body).Decode(&neighbours); err != nil {
@@ -125,6 +136,7 @@ func GetNeighbours() (string, error) {
 	return s.String(), nil
 }
 
+// GetRoutes method receive routes data from node's IPC server.
 func GetRoutes() (string, error) {
 	s := strings.Builder{}
 	baseURL.Path = "/routes"
@@ -132,7 +144,9 @@ func GetRoutes() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	var routes []RouteDTO
 	if err := json.NewDecoder(resp.Body).Decode(&routes); err != nil {

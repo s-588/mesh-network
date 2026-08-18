@@ -1,3 +1,5 @@
+// mesh-node is an app that immulate mesh network on a virtual level
+// using the AODV protocol mechanisms.
 package main
 
 import (
@@ -83,7 +85,7 @@ func main() {
 			},
 		},
 		// override environment variables with flags
-		Action: func(ctx context.Context, c *urfave.Command) error {
+		Action: func(_ context.Context, c *urfave.Command) error {
 			cfg.IsDaemon = c.Bool("daemon")
 			cfg.Port = uint16(c.Uint("port"))
 			if ifaces := c.String("interface"); ifaces != "" {
@@ -116,12 +118,12 @@ func main() {
 								UsageText: "ID of a node you trying to find",
 							},
 						},
-						Action: func(ctx context.Context, c *urfave.Command) error {
+						Action: func(_ context.Context, c *urfave.Command) error {
 							result, err := cli.SendRREQ(c.Int64Arg("target"))
 							if err != nil {
 								return err
 							}
-							fmt.Fprintf(os.Stdout, result)
+							fmt.Fprint(os.Stdout, result)
 							return nil
 						},
 					},
@@ -138,12 +140,12 @@ func main() {
 								UsageText: "message that you want to send",
 							},
 						},
-						Action: func(ctx context.Context, c *urfave.Command) error {
+						Action: func(_ context.Context, c *urfave.Command) error {
 							result, err := cli.SendMsg(c.Int64Arg("target"), c.StringArg("msg"))
 							if err != nil {
 								return err
 							}
-							fmt.Fprintf(os.Stdout, result)
+							fmt.Fprint(os.Stdout, result)
 							return nil
 						},
 					},
@@ -156,7 +158,7 @@ func main() {
 					{
 						Name:    "messages",
 						Aliases: []string{"m", "msgs"},
-						Action: func(ctx context.Context, c *urfave.Command) error {
+						Action: func(_ context.Context, _ *urfave.Command) error {
 							result, err := cli.GetMsgs()
 							if err != nil {
 								return err
@@ -168,7 +170,7 @@ func main() {
 					{
 						Name:    "neighbours",
 						Aliases: []string{"n"},
-						Action: func(ctx context.Context, c *urfave.Command) error {
+						Action: func(_ context.Context, _ *urfave.Command) error {
 							result, err := cli.GetNeighbours()
 							if err != nil {
 								return err
@@ -180,7 +182,7 @@ func main() {
 					{
 						Name:    "routes",
 						Aliases: []string{"r"},
-						Action: func(ctx context.Context, c *urfave.Command) error {
+						Action: func(_ context.Context, _ *urfave.Command) error {
 							result, err := cli.GetRoutes()
 							if err != nil {
 								return err

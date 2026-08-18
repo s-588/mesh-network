@@ -1,3 +1,4 @@
+// package routing contains logic of message forwarding between nodes
 package routing
 
 import (
@@ -19,6 +20,7 @@ type Table[T any] struct {
 	m  map[uint64]T
 }
 
+// NewTable method is generic only to use in a public var section
 func NewTable[T any]() Table[T] {
 	return Table[T]{
 		m: make(map[uint64]T),
@@ -59,8 +61,8 @@ func (t *Table[T]) String() string {
 		entry := t.m[id]
 		switch v := any(&entry).(type) {
 		case *NeighboursEntry:
-			sb.WriteString(fmt.Sprintf("ID: %d | Addr: %s | LastSeen: %s | Interface: %s\n",
-				v.ID, addrPortString(v.Addr), timeString(v.LastSeen), v.Interface))
+			fmt.Fprintf(&sb, "ID: %d | Addr: %s | LastSeen: %s | Interface: %s\n",
+				v.ID, addrPortString(v.Addr), timeString(v.LastSeen), v.Interface)
 		case *RouteEntry:
 			precursors := make([]string, 0, len(v.Precursors))
 			for p := range v.Precursors {
@@ -71,12 +73,12 @@ func (t *Table[T]) String() string {
 			if precStr == "" {
 				precStr = "none"
 			}
-			sb.WriteString(fmt.Sprintf("DstID: %d | Seq: %d | Hops: %d | NextHop: %d (%s) | Lifetime: %s | LastUpdate: %s | Precursors: [%s] | Iface: %s\n",
+			fmt.Fprintf(&sb, "DstID: %d | Seq: %d | Hops: %d | NextHop: %d (%s) | Lifetime: %s | LastUpdate: %s | Precursors: [%s] | Iface: %s\n",
 				v.DstID, v.DstSeq, v.HopCount, v.NextHopID, addrPortString(v.NextHopAddr),
-				timeString(v.Lifetime), timeString(v.LastUpdate), precStr, v.Interface))
+				timeString(v.Lifetime), timeString(v.LastUpdate), precStr, v.Interface)
 		default:
 			// Fallback for unknown types or future additions
-			sb.WriteString(fmt.Sprintf("ID: %d | %+v\n", id, entry))
+			fmt.Fprintf(&sb, "ID: %d | %+v\n", id, entry)
 		}
 	}
 
@@ -123,7 +125,7 @@ type RouteEntry struct {
 	NextHopAddr netip.AddrPort      // Port to where send messages of the next node.
 	Lifetime    time.Time           // Absolute expiration time after which the route is considered invalid and must be removed
 	LastUpdate  time.Time           // Time when route was updated last time.
-	Precursors  map[uint64]struct{} // IDs of all nodes who should recieve notification when something happens with route.
+	Precursors  map[uint64]struct{} // IDs of all nodes who should receive notification when something happens with route.
 	Interface   string              // Linux interface name for sending
 }
 
