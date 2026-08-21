@@ -79,34 +79,40 @@ Run the Docker Compose simulation. This will bring up 11 nodes connected across 
 
 Network topology of this simulation looks like this:
 
-
-   
+<img alt="Docker Compose test topology" src="https://github.com/user-attachments/assets/63381571-041b-4c04-8fc7-bcbc5f2f0e75" />
 
 #### To install as app
 
+  ```sh
+   go install github.com/s-588/mesh-network/cmd/mesh-node@latest
+   ```
 
-
-And build the binary
+Or clone and build
    ```sh
+   git clone https://github.com/s-588/mesh-network.git
+   cd mesh-network
    go build -o mesh-node ./cmd/mesh-node
-   ./mesh-node
-   ```
-Or just install using go
-   ```sh
-   go run ./cmd/mesh-node
    ```
 
-3. **Run a single node** (default listens on `eth0`, port 6040):
-   ```sh
-   ```
-   This starts the TUI. You can also run in daemon mode (no TUI) with `--daemon`.
-
-4. **
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- USAGE EXAMPLES -->
 ## Usage
+
+### Docker Compose simulation
+
+To enter a node interface you need to attach terminal to a container.
+```sh
+docker compose attach node2
+```
+
+Logs are placed in the `/root/` folder.
+
+To CLI in container you can attach it with /bin/sh
+```sh
+docker exec -it node2 /bin/sh
+```
+And now you can use [CLI](#CLI) to interact with node
+```sh
+mesh-node --help
+```
 
 ### TUI (Terminal User Interface)
 
@@ -114,33 +120,45 @@ When you run the node without the `--daemon` flag, the TUI opens. It is divided 
 
 - **Left panel**: Enter the destination node ID and the message payload, then click **Send** (or press Enter when focused on the send button).
 - **Right panel**: Live logs showing messages, protocol events, and errors.
-- **Bottom tables**: Neighbour table (ID, address, last seen, interface) and Routes table (destination, sequence, hops, next hop, address, interface).
+- **Bottom tables**: Neighbours table (ID, address, last seen, interface) and Routes table (destination, sequence, hops, next hop, address, interface).
 
 **Keyboard shortcuts:**
 - `Tab` / `Shift+Tab` – Move focus between elements.
 - `Enter` – When focused on the send button, sends the message; when focused on an input, moves to the next field.
-- `Esc` – Quit the TUI.
-- `Ctrl+C` – Force quit.
+- `Esc` / `Ctrl+C` – Force quit.
 
 ### CLI Commands
 
 The node also exposes a local HTTP API on `127.0.0.1:6242` (by default), which the CLI uses. You can invoke the CLI using the same binary:
 
+Sends a RREQ to discover a route to target_id.
 ```sh
 ./mesh-node send rreq <target_id>
-# Sends a RREQ to discover a route to target_id.
+```
 
+Sends a text message to target_id (payload is UTF‑8).
+```sh
 ./mesh-node send msg <target_id> "<message>"
-# Sends a text message to target_id (payload is UTF‑8).
+```
 
-./mesh-node show messages      # or: show m / show msgs
-# Displays all received messages.
+Displays all received messages.
+```sh
+./mesh-node show messages
+```
 
-./mesh-node show neighbours    # or: show n
-# Shows the neighbour table with last seen times.
+Shows the neighbour table with last seen times.
+```sh
+./mesh-node show neighbours
+```
 
-./mesh-node show routes        # or: show r
-# Shows the routing table.
+Shows the routing table.
+```sh
+./mesh-node show routes  
+```
+
+You can find additional information by running 
+```sh
+./mesh-node --help 
 ```
 
 All commands communicate with the background node via the IPC server, so the node must be running (either in daemon mode or TUI mode) for the CLI to work.
@@ -158,7 +176,7 @@ The node can be configured using environment variables (loaded from `.env` if pr
 | `LIFETIME`           | `--lifetime`       | Route lifetime (seconds)                         | 30                |
 | `HELLO_INTERVAL`     | `--hello-interval` | HELLO broadcast interval (seconds)               | 5                 |
 | `LOG_LEVEL`          | `--log-level`      | Log level: `DEBUG`, `INFO`, `WARN`, `ERROR`      | `INFO`            |
-| `LOG_FILE`           | `--log-file`       | Path to log file (defaults to `~/mesh-network_<timestamp>.log`) | auto-generated |
+| `LOG_FILE`           | `--log-file`       | Path to log file (defaults to `~/<timestamp>.log`) | auto-generated |
 | `DAEMON`             | `--daemon`         | Run without TUI (daemon mode)                    | `false`           |
 
 Example:
@@ -171,184 +189,10 @@ Or using flags:
 ./mesh-node --id 42 --port 7000 --interface eth0,eth1
 ```
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- SIMULATION WITH DOCKER COMPOSE -->
-## Simulation with Docker Compose
-
-The provided `docker-compose.yaml` defines 11 nodes with custom IP addresses across four networks (`net‑a`, `net‑b`, `net‑c`, `net‑d`). This setup emulates a real multi‑hop topology where nodes can reach each other only through intermediate nodes.
-
-### Topology Overview
-
-- **Node 1**: `172.20.1.10` (net‑a) and `172.20.2.14` (net‑b) – bridge between net‑a and net‑b.
-- **Node 2**: `172.20.1.12` (net‑a)
-- **Node 3**: `172.20.1.13` (net‑a)
-- **Node 4**: `172.20.1.14` (net‑a)
-- **Node 5**: `172.20.2.10` (net‑b)
-- **Node 6**: `172.20.2.12` (net‑b)
-- **Node 7**: `172.20.2.13` (net‑b) and `172.20.3.14` (net‑c) – bridge between net‑b and net‑c.
-- **Node 8**: `172.20.3.10` (net‑c)
-- **Node 9**: `172.20.3.12` (net‑c) and `172.20.1.15` (net‑a) – bridge between net‑c and net‑a (creates a loop).
-- **Node 10**: `172.20.3.13` (net‑c) and `172.20.4.12` (net‑d) – bridge between net‑c and net‑d.
-- **Node 11**: `172.20.4.10` (net‑d)
-
-### Running the Simulation
-
-1. Build the Docker images:
-   ```sh
-   docker compose build
-   ```
-
-2. Start all nodes:
-   ```sh
-   docker compose up
-   ```
-
-3. Each node will have its own TUI (if not daemonized). You can attach to any container to interact:
-   ```sh
-   docker attach node1
-   ```
-
-4. To stop:
-   ```sh
-   docker compose down
-   ```
-
-This setup is perfect for testing route discovery, message forwarding, and error handling without needing physical hardware.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- PROJECT STRUCTURE -->
-## Project Structure
-
-The code is organised as follows:
-
-```
-mesh-network/
-├── cmd/
-│   ├── mesh-node/          # Main entry point
-│   │   └── main.go
-│   ├── cli/                # CLI client and IPC server
-│   │   ├── client.go       # HTTP client functions
-│   │   ├── server.go       # IPC HTTP server
-│   │   ├── models.go       # DTOs for JSON
-│   │   └── errors.go       # CLI error definitions
-│   ├── tui/                # TUI implementation
-│   │   ├── model.go        # Bubble Tea model
-│   │   ├── messages.go     # Tea messages and commands
-│   │   ├── logger.go       # Custom slog.Handler for TUI logs
-│   │   └── style.go        # Lip Gloss styles
-│   └── style/              # Shared style definitions
-├── internal/
-│   ├── config/             # Configuration parsing (env, flags)
-│   ├── protocol/           # AODV message types and serialisation
-│   │   ├── messages.go
-│   │   ├── errors.go
-│   │   └── messages_test.go
-│   ├── routing/            # Routing and neighbour tables
-│   │   ├── routes.go
-│   │   └── routes_test.go
-│   ├── socket/             # UDP socket handling and message processing
-│   │   ├── conn.go
-│   │   └── conn_test.go
-│   └── logger/             # Slog setup and pretty handling
-├── pkg/logger/             # Log type constants (shared with tui)
-├── go.mod
-├── go.sum
-├── docker-compose.yaml
-├── .env.example
-└── README.md
-```
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- ROADMAP -->
-## Roadmap
-
-- [x] Basic AODV protocol (RREQ, RREP, RERR, HELLO)
-- [x] Thread‑safe tables
-- [x] TUI with live logs and tables
-- [x] CLI with commands
-- [x] Docker Compose simulation
-- [x] Configuration via env/flags
-- [ ] Support for IPv6
-- [ ] Encryption / authentication (security layer)
-- [ ] Persistent storage of routes (to survive restarts)
-- [ ] Metrics / monitoring endpoint
-
-See the [open issues](https://github.com/s-588/mesh-network/issues) for a full list of proposed features and known issues.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- CONTRIBUTING -->
-## Contributing
-
-Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
-
-If you have a suggestion that would make this better, please fork the repo and create a pull request. You can also simply open an issue with the tag "enhancement".
-Don't forget to give the project a star! Thanks again!
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-### Top contributors:
-
-<a href="https://github.com/s-588/mesh-network/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=s-588/mesh-network" alt="contrib.rocks image" />
-</a>
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- LICENSE -->
-## License
-
-Distributed under the Unlicense License. See `LICENSE` for more information.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- CONTACT -->
-## Contact
-
-Your Name – [@your_twitter](https://twitter.com/your_username) – email@example.com
-
-Project Link: [https://github.com/s-588/mesh-network](https://github.com/s-588/mesh-network)
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- ACKNOWLEDGMENTS -->
-## Acknowledgments
-
-- [Bubble Tea](https://github.com/charmbracelet/bubbletea) – for making TUI development a joy.
-- [Lip Gloss](https://github.com/charmbracelet/lipgloss) – for beautiful terminal styling.
-- [urfave/cli](https://github.com/urfave/cli) – for the CLI framework.
-- [AODV RFC 3561](https://datatracker.ietf.org/doc/html/rfc3561) – the protocol specification.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
 ## Internals
 
-The entire protocol (RREQ, RREP, RERR, HELLO, DATA) is implemented from scratch with binary marshalling, sequence numbers, broadcast IDs, and route expiry. The routing and neighbour tables are thread‑safe and designed for concurrent use.
+When I started this project I wanted to create routing protocol and learn how mesh networks work on practice. So I research what are the existing solutions for mesh networks and found out bunch of routing protocols like [RIP](https://en.wikipedia.org/wiki/Routing_Information_Protocol) and [OSPF](https://en.wikipedia.org/wiki/Open_Shortest_Path_First) and specifically designed for dynamic networks [AODV](https://en.wikipedia.org/wiki/Ad_hoc_On-Demand_Distance_Vector_Routing), [DSR](https://en.wikipedia.org/wiki/Dynamic_Source_Routing), [OLSR](https://en.wikipedia.org/wiki/Optimized_Link_State_Routing_Protocol). I reviewed them, how they work and decided that most interesting will be implement something that look like AODV. So during implementation I didn't read [RFC 3561](https://datatracker.ietf.org/doc/rfc3561/) because I wanted to came up with my own solution without understanding of what happening under the hood of AODV and I believe I did well.   
 
-## User-space
+### User-space
 
-<!-- MARKDOWN LINKS & IMAGES -->
-[contributors-shield]: https://img.shields.io/github/contributors/s-588/mesh-network.svg?style=for-the-badge
-[contributors-url]: https://github.com/s-588/mesh-network/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/s-588/mesh-network.svg?style=for-the-badge
-[forks-url]: https://github.com/s-588/mesh-network/network/members
-[stars-shield]: https://img.shields.io/github/stars/s-588/mesh-network.svg?style=for-the-badge
-[stars-url]: https://github.com/s-588/mesh-network/stargazers
-[issues-shield]: https://img.shields.io/github/issues/s-588/mesh-network.svg?style=for-the-badge
-[issues-url]: https://github.com/s-588/mesh-network/issues
-[license-shield]: https://img.shields.io/github/license/s-588/mesh-network.svg?style=for-the-badge
-[license-url]: https://github.com/s-588/mesh-network/blob/master/LICENSE
-[linkedin-shield]: https://img.shields.io/badge/-LinkedIn-black.svg?style=for-the-badge&logo=linkedin&colorB=555
-[linkedin-url]: https://linkedin.com/in/your_username
-[go-shield]: https://img.shields.io/badge/Go-1.21+-00ADD8?style=for-the-badge&logo=go
-[go-url]: https://golang.org/
-[bubbletea-shield]: https://img.shields.io/badge/Built%20with-Bubble%20Tea-ff69b4?style=for-the-badge&logo=tea
-[bubbletea-url]: https://github.com/charmbracelet/bubbletea
-[product-screenshot]: images/screenshot.png
+Mesh network created by the app it's a logical mesh network. So transportation of packages trusted to UDP/IP stack, this means that all nodes on the same network can communicate without any help from my application. To solve this problem I decided to support multiple interfaces, this forces app to route packages between networks and allows to create something that look like real mesh network.
