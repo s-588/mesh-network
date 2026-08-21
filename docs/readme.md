@@ -50,16 +50,11 @@ The node comes with two interfaces:
 - [Bubbles](https://github.com/charmbracelet/bubbles) – Reusable TUI components (table, textarea, viewport).
 - [Lip Gloss](https://github.com/charmbracelet/lipgloss) – Styling for the TUI.
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- GETTING STARTED -->
 ## Getting Started
-
-Follow these instructions to get a development or simulation environment running.
 
 ### Prerequisites
 
-- **Go 1.21+** (the project uses `go 1.26.2` in `go.mod`, but older versions should work).
+- **Go 1.26.2** (the project uses `go 1.26.2` in `go.mod`, but older versions should work).
 - **Docker** and **Docker Compose** (optional, for running the multi‑node simulation).
 
 ### Installation
