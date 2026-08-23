@@ -4,11 +4,6 @@
 
   <p align="center">
     A Go implementation of an AODV (Ad-hoc On-Demand Distance Vector) like routing node with a BubbleTea TUI and CLI.
-    <br />
-     <a href="#usage">View Demo</a>
-    ·
-    <a href="#internals">Internals</a>
-    <br />
   
   </p>
 </div>
