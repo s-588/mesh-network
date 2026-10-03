@@ -24,6 +24,13 @@ linters:
     - misspell
     - unparam
     - prealloc
+  exclusions:
+    generated: strict
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
 
 linters-settings:
   errcheck:
