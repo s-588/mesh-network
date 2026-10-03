@@ -41,7 +41,7 @@ type model struct {
 	logs    []string
 	logChan <-chan string
 
-	nodeID int
+	nodeID uint64
 	ifaces []string
 
 	sock *socket.Socket
@@ -54,7 +54,7 @@ type model struct {
 	viewportHeight int
 }
 
-func InitialModel(nodeID int, ifaces []string, logChan <-chan string, sock *socket.Socket) model {
+func InitialModel(nodeID uint64, ifaces []string, logChan <-chan string, sock *socket.Socket) model {
 	ti := textinput.New()
 	ti.Placeholder = "Enter ID of receiver node..."
 	ti.Focus()
@@ -206,6 +206,7 @@ func (m *model) blurCurrent() {
 	m.routesTable.Blur()
 }
 
+//nolint:funlen // View is long due to layout code, but it's clear and readable.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -218,7 +219,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case LogMsg:
 		m.logs = append(m.logs, string(msg))
 		m.resultViewport.SetContent(strings.Join(m.logs, "\n"))
-		m.resultViewport.GotoBottom() // ← This was the main request
+		m.resultViewport.GotoBottom()
 		return m, listenForLogs(m.logChan)
 
 	case tea.WindowSizeMsg:
@@ -237,23 +238,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "esc":
-			// Simple behavior: blur current input or quit
-			switch m.focused {
-			case 0:
-				if m.nodeIDTextInput.Focused() {
-					m.nodeIDTextInput.Blur()
-				} else {
-					return m, tea.Quit
-				}
-			case 1:
-				if m.payloadAreaInput.Focused() {
-					m.payloadAreaInput.Blur()
-				} else {
-					return m, tea.Quit
-				}
-			default:
-				return m, tea.Quit
-			}
+			return processEscPress(m)
 
 		case "tab":
 			m.nextFocus()
@@ -262,32 +247,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prevFocus()
 
 		case "enter":
-			switch m.focused {
-			case 0: // node ID
-				if m.nodeIDTextInput.Focused() {
-					m.nodeIDTextInput.Blur()
-					m.focused = 1
-					m.payloadAreaInput.Focus()
-				}
-			case 1: // payload
-				if m.payloadAreaInput.Focused() {
-					m.payloadAreaInput.Blur()
-					m.focused = 2
-				}
-			case 2: // send button
-				nodeID, err := strconv.ParseUint(m.nodeIDTextInput.Value(), 10, 64)
-				if err != nil {
-					m.logs = append(m.logs, "Error: invalid node ID")
-					m.resultViewport.SetContent(strings.Join(m.logs, "\n"))
-					m.resultViewport.GotoBottom()
-					return m, nil
-				}
-				payload := []byte(m.payloadAreaInput.Value())
-				m.sock.SendData(nodeID, payload)
-				m.payloadAreaInput.SetValue("")
-			case 3:
-				m.resultViewport.GotoBottom()
-			}
+			return processEnterPress(m), nil
 		}
 	}
 
@@ -313,69 +273,149 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func processEnterPress(m model) tea.Model {
+	switch m.focused {
+	case 0: // node ID
+		if m.nodeIDTextInput.Focused() {
+			m.nodeIDTextInput.Blur()
+			m.focused = 1
+			m.payloadAreaInput.Focus()
+		}
+	case 1: // payload
+		if m.payloadAreaInput.Focused() {
+			m.payloadAreaInput.Blur()
+			m.focused = 2
+		}
+	case 2: // send button
+		nodeID, err := strconv.ParseUint(m.nodeIDTextInput.Value(), 10, 64)
+		if err != nil {
+			m.logs = append(m.logs, "Error: invalid node ID")
+			m.resultViewport.SetContent(strings.Join(m.logs, "\n"))
+			m.resultViewport.GotoBottom()
+			return m
+		}
+		payload := []byte(m.payloadAreaInput.Value())
+		m.sock.SendData(nodeID, payload)
+		m.payloadAreaInput.SetValue("")
+	case 3:
+		m.resultViewport.GotoBottom()
+	}
+	return m
+}
+
+func processEscPress(m model) (tea.Model, tea.Cmd) {
+	switch m.focused {
+	case 0:
+		if m.nodeIDTextInput.Focused() {
+			m.nodeIDTextInput.Blur()
+		} else {
+			return m, tea.Quit
+		}
+	case 1:
+		if m.payloadAreaInput.Focused() {
+			m.payloadAreaInput.Blur()
+		} else {
+			return m, tea.Quit
+		}
+	default:
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 func (m model) View() (view tea.View) {
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
-	// No need for the old view.AltScreen etc. in newer Bubble Tea, just return string
 	if len(m.logs) > 0 {
 		m.resultViewport.SetContent(strings.Join(m.logs, "\n"))
 	}
 
-	// LEFT PANEL
+	layout := lipgloss.JoinVertical(
+		lipgloss.Left,
+		m.renderTopLayout(),
+		"",
+		m.renderNeighboursBlock(),
+		"",
+		m.renderRoutesBlock(),
+	)
+
+	view.SetContent(style.AppStyle.Width(m.width).Render(layout))
+	return view
+}
+
+func (m model) renderNodeIDInput() string {
 	nodeStyle := style.BlurFieldStyle
 	if m.focused == 0 {
 		nodeStyle = style.FocusFieldStyle
 	}
-	nodeIDView := nodeStyle.Width(m.inputWidth + 2).Render(m.nodeIDTextInput.View())
+	return nodeStyle.Width(m.inputWidth + 2).Render(m.nodeIDTextInput.View())
+}
 
+func (m model) renderSendButton() string {
 	btnStyle := style.SendButtonBlurred
 	if m.focused == 2 {
 		btnStyle = style.SendButtonFocused
 	}
-	sendBtn := btnStyle.Render(m.sendButton)
+	return btnStyle.Render(m.sendButton)
+}
 
-	topRow := lipgloss.JoinHorizontal(
+func (m model) renderTopRow() string {
+	return lipgloss.JoinHorizontal(
 		lipgloss.Left,
-		nodeIDView,
-		lipgloss.NewStyle().PaddingLeft(2).Render(sendBtn),
+		m.renderNodeIDInput(),
+		lipgloss.NewStyle().PaddingLeft(2).Render(m.renderSendButton()),
 	)
+}
 
+func (m model) renderPayloadInput() string {
 	payloadStyle := style.BlurFieldStyle
 	if m.focused == 1 {
 		payloadStyle = style.FocusFieldStyle
 	}
-	payloadView := payloadStyle.Width(m.textareaWidth + 2).Render(m.payloadAreaInput.View())
+	return payloadStyle.Width(m.textareaWidth + 2).Render(m.payloadAreaInput.View())
+}
 
-	leftContent := lipgloss.JoinVertical(
+func (m model) renderLeftContent() string {
+	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		style.TitleStyle.Render(fmt.Sprintf("Node ID: %d | Active interfaces: %s", m.nodeID, strings.Join(m.ifaces, ", "))),
-		topRow,
-		payloadView,
+		m.renderTopRow(),
+		m.renderPayloadInput(),
 	)
+}
 
-	leftPanel := style.LeftPanelStyle.
+func (m model) renderLeftPanel() string {
+	return style.LeftPanelStyle.
 		Width(m.leftWidth).
 		Height(m.topSectionHeight).
-		Render(leftContent)
+		Render(m.renderLeftContent())
+}
 
-	// RIGHT PANEL
-	rightContent := lipgloss.JoinVertical(
+func (m model) renderRightContent() string {
+	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		style.ResultHeaderStyle.Render("Result / Logs"),
 		m.resultViewport.View(),
 	)
-	rightPanel := style.RightPanelStyle.
+}
+
+func (m model) renderRightPanel() string {
+	return style.RightPanelStyle.
 		Width(m.rightWidth).
 		Height(m.topSectionHeight).
-		Render(rightContent)
+		Render(m.renderRightContent())
+}
 
-	topLayout := lipgloss.JoinHorizontal(
+func (m model) renderTopLayout() string {
+	return lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		leftPanel,
-		lipgloss.NewStyle().PaddingLeft(1).Render(rightPanel),
+		m.renderLeftPanel(),
+		lipgloss.NewStyle().PaddingLeft(1).Render(m.renderRightPanel()),
 	)
+}
 
-	neighboursBlock := style.PanelStyle.
+func (m model) renderNeighboursBlock() string {
+	return style.PanelStyle.
 		Width(m.width - 2).
 		Render(
 			lipgloss.JoinVertical(
@@ -384,8 +424,10 @@ func (m model) View() (view tea.View) {
 				m.neighboursTable.View(),
 			),
 		)
+}
 
-	routesBlock := style.PanelStyle.
+func (m model) renderRoutesBlock() string {
+	return style.PanelStyle.
 		Width(m.width - 2).
 		Render(
 			lipgloss.JoinVertical(
@@ -394,18 +436,6 @@ func (m model) View() (view tea.View) {
 				m.routesTable.View(),
 			),
 		)
-
-	layout := lipgloss.JoinVertical(
-		lipgloss.Left,
-		topLayout,
-		"",
-		neighboursBlock,
-		"",
-		routesBlock,
-	)
-
-	view.SetContent(style.AppStyle.Width(m.width).Render(layout))
-	return view
 }
 
 func (m *model) refreshNeighboursTable() {

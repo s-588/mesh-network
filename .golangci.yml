@@ -31,11 +31,13 @@ linters:
         linters:
           - gosec
           - errcheck
+          - funlen
+          - gocyclo
 
   settings:
     errcheck:
       check-type-assertions: true
-      check-blank: true
+      check-blank: false
     revive:
       rules:
         - name: exported

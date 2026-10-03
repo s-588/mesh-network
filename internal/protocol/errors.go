@@ -4,9 +4,9 @@ package protocol
 type ErrorCode uint8
 
 const (
-	ErrLinkBreak ErrorCode = iota + 1 // When connection to node is broken
-	ErrDestUnreachable // TTL expired and route to destination is not found
-	ErrProtocolViolation // Incorrectly created message
+	ErrLinkBreak         ErrorCode = iota + 1 // When connection to node is broken
+	ErrDestUnreachable                        // TTL expired and route to destination is not found
+	ErrProtocolViolation                      // Incorrectly created message
 )
 
 // String corresponds to fmt.Stringer interface

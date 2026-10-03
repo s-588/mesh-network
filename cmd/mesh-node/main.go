@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"strings"
 
@@ -25,7 +26,15 @@ func main() {
 		panic(err)
 	}
 
-	app := &urfave.Command{
+	app := setupCLI(cfg)
+	if err := app.Run(context.Background(), os.Args); err != nil {
+		_, _ = fmt.Fprintf(os.Stdout, "can't run app: %s\n", err)
+	}
+}
+
+//nolint:funlen
+func setupCLI(cfg config.Config) *urfave.Command {
+	return &urfave.Command{
 		Name:  "mesh-node",
 		Usage: "AODV mesh network node",
 		Flags: []urfave.Flag{
@@ -85,15 +94,32 @@ func main() {
 			},
 		},
 		// override environment variables with flags
-		Action: func(_ context.Context, c *urfave.Command) error {
+		Action: func(ctx context.Context, c *urfave.Command) error {
 			cfg.IsDaemon = c.Bool("daemon")
-			cfg.Port = uint16(c.Uint("port"))
+
+			port := c.Uint("port")
+			if port < 1 || port > math.MaxUint16 {
+				return fmt.Errorf("invalid port number: %d", port)
+			}
+			cfg.Port = uint16(port)
+
 			if ifaces := c.String("interface"); ifaces != "" {
 				cfg.Interfaces = strings.Split(ifaces, ",")
 			}
 			cfg.ID = c.Uint64("id")
-			cfg.TTL = uint8(c.Uint("ttl"))
-			cfg.Lifetime = uint32(c.Uint("lifetime"))
+
+			ttl := c.Uint("ttl")
+			if ttl < 1 || ttl > math.MaxUint8 {
+				return fmt.Errorf("invalid TTL value: %d", ttl)
+			}
+			cfg.TTL = uint8(ttl)
+
+			lifetime := c.Uint("lifetime")
+			if lifetime < 1 || lifetime > math.MaxUint32 {
+				return fmt.Errorf("invalid lifetime value: %d", lifetime)
+			}
+			cfg.Lifetime = uint32(lifetime)
+
 			cfg.HelloInterval = int(c.Uint("hello-interval"))
 			if lf := c.String("log-file"); lf != "" {
 				cfg.LogFile = lf
@@ -102,7 +128,7 @@ func main() {
 				cfg.Level = strings.ToUpper(ll)
 			}
 
-			return runNode(cfg)
+			return runNode(ctx, cfg)
 		},
 		Commands: []*urfave.Command{
 			{
@@ -118,12 +144,12 @@ func main() {
 								UsageText: "ID of a node you trying to find",
 							},
 						},
-						Action: func(_ context.Context, c *urfave.Command) error {
-							result, err := cli.SendRREQ(c.Int64Arg("target"))
+						Action: func(ctx context.Context, c *urfave.Command) error {
+							result, err := cli.SendRREQ(ctx, c.Int64Arg("target"))
 							if err != nil {
 								return err
 							}
-							fmt.Fprint(os.Stdout, result)
+							_, _ = fmt.Fprint(os.Stdout, result)
 							return nil
 						},
 					},
@@ -140,12 +166,12 @@ func main() {
 								UsageText: "message that you want to send",
 							},
 						},
-						Action: func(_ context.Context, c *urfave.Command) error {
-							result, err := cli.SendMsg(c.Int64Arg("target"), c.StringArg("msg"))
+						Action: func(ctx context.Context, c *urfave.Command) error {
+							result, err := cli.SendMsg(ctx, c.Int64Arg("target"), c.StringArg("msg"))
 							if err != nil {
 								return err
 							}
-							fmt.Fprint(os.Stdout, result)
+							_, _ = fmt.Fprint(os.Stdout, result)
 							return nil
 						},
 					},
@@ -158,36 +184,36 @@ func main() {
 					{
 						Name:    "messages",
 						Aliases: []string{"m", "msgs"},
-						Action: func(_ context.Context, _ *urfave.Command) error {
-							result, err := cli.GetMsgs()
+						Action: func(ctx context.Context, _ *urfave.Command) error {
+							result, err := cli.GetMsgs(ctx)
 							if err != nil {
 								return err
 							}
-							fmt.Fprint(os.Stdout, result)
+							_, _ = fmt.Fprint(os.Stdout, result)
 							return nil
 						},
 					},
 					{
 						Name:    "neighbours",
 						Aliases: []string{"n"},
-						Action: func(_ context.Context, _ *urfave.Command) error {
-							result, err := cli.GetNeighbours()
+						Action: func(ctx context.Context, _ *urfave.Command) error {
+							result, err := cli.GetNeighbours(ctx)
 							if err != nil {
 								return err
 							}
-							fmt.Fprint(os.Stdout, result)
+							_, _ = fmt.Fprint(os.Stdout, result)
 							return nil
 						},
 					},
 					{
 						Name:    "routes",
 						Aliases: []string{"r"},
-						Action: func(_ context.Context, _ *urfave.Command) error {
-							result, err := cli.GetRoutes()
+						Action: func(ctx context.Context, _ *urfave.Command) error {
+							result, err := cli.GetRoutes(ctx)
 							if err != nil {
 								return err
 							}
-							fmt.Fprint(os.Stdout, result)
+							_, _ = fmt.Fprint(os.Stdout, result)
 							return nil
 						},
 					},
@@ -195,12 +221,9 @@ func main() {
 			},
 		},
 	}
-	if err := app.Run(context.Background(), os.Args); err != nil {
-		fmt.Fprintf(os.Stdout, "%s\n", err)
-	}
 }
 
-func runNode(cfg config.Config) error {
+func runNode(ctx context.Context, cfg config.Config) error {
 	tuiLogChan := make(chan string, 10)
 	tuiLogger := &tui.RouterLogHandler{
 		Logs: tuiLogChan,
@@ -211,14 +234,12 @@ func runNode(cfg config.Config) error {
 	}
 
 	slog.Info("Starting node")
-	slog.Info(fmt.Sprintf("Configuration parsed: %s", cfg.String()))
+	slog.Info("Configuration parsed", "config", cfg.String())
 
-	t, err := socket.NewSocket(cfg.AppConfig)
+	t, err := socket.NewSocket(ctx, cfg.AppConfig)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	go t.Start(ctx)
 	go t.ProcessMessages(ctx)
 	go t.StartHelloSender(ctx)
@@ -230,11 +251,10 @@ func runNode(cfg config.Config) error {
 		<-ctx.Done()
 	}
 
-	tuiModel := tui.InitialModel(int(cfg.ID), cfg.Interfaces, tuiLogChan, t)
+	tuiModel := tui.InitialModel(cfg.ID, cfg.Interfaces, tuiLogChan, t)
 	p := tea.NewProgram(tuiModel)
 	if _, err := p.Run(); err != nil {
 		slog.Error("Fatal TUI component crash", "error", err)
-		os.Exit(1)
 	}
 	return nil
 }

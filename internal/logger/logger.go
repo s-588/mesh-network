@@ -19,7 +19,7 @@ import (
 func openLogFile(filename string) *os.File {
 	var logFile *os.File
 	if filename != "" {
-		f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, 0644)
+		f, err := openFile(filename)
 		if err != nil {
 			slog.Warn("file passed as log file can't be openned. Default log file will be used", "error", err, "filename", filename)
 		} else {
@@ -35,14 +35,14 @@ func openLogFile(filename string) *os.File {
 			homeDir, err := os.UserHomeDir()
 			if err != nil {
 				slog.Warn("home dir can't be found, log file will be created here")
-				f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, 0644)
+				f, err := openFile(filename)
 				if err != nil {
 					slog.Error("log file cannot be created", "error", err)
 					return nil
 				}
 				logFile = f
 			} else {
-				f, err := os.OpenFile(path.Join(homeDir, filename), os.O_CREATE|os.O_WRONLY, 0644)
+				f, err := openFile(path.Join(homeDir, filename))
 				if err != nil {
 					slog.Error("log file cannot be created", "error", err)
 					return nil
@@ -50,7 +50,7 @@ func openLogFile(filename string) *os.File {
 				logFile = f
 			}
 		} else {
-			f, err := os.OpenFile(path.Join(tempDir, filename), os.O_CREATE|os.O_WRONLY, 0644)
+			f, err := openFile(path.Join(tempDir, filename))
 			if err != nil {
 				slog.Error("log file cannot be created", "error", err)
 				return nil
@@ -60,6 +60,11 @@ func openLogFile(filename string) *os.File {
 	}
 
 	return logFile
+}
+
+func openFile(filename string) (*os.File, error) {
+	//nolint:gosec // log file paths are explicitly configured by the application runtime.
+	return os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 }
 
 func SetupSlog(cfg config.Config, tuiHandler slog.Handler) error {
@@ -120,21 +125,21 @@ func (h PrettyHandler) Handle(ctx context.Context, r slog.Record) error {
 
 	// Format: TIME [LEVEL] MSG (KEY=VAL)
 	timeStr := r.Time.Format("15:04:05")
-	fmt.Fprintf(h.out, "%s %s %s",
+	_, _ = fmt.Fprintf(h.out, "%s %s %s",
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).Render(timeStr),
 		levelStyle.Render("["+level+"]"),
 		lipgloss.NewStyle().Bold(true).Render(r.Message),
 	)
 
 	r.Attrs(func(a slog.Attr) bool {
-		fmt.Fprintf(h.out, " %s=%s",
+		_, _ = fmt.Fprintf(h.out, " %s=%s",
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#A3BFFA")).Render(a.Key),
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Render(fmt.Sprintf("%v", a.Value.Any())),
 		)
 		return true
 	})
 
-	fmt.Fprintln(h.out)
+	_, _ = fmt.Fprintln(h.out)
 	return nil
 }
 

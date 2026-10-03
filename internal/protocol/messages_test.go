@@ -117,7 +117,6 @@ func TestHeader_RoundTrip(t *testing.T) {
 	if !reflect.DeepEqual(h, newH) {
 		t.Fatalf("round trip failed:\nwant:%v\ngot:%v", h, newH)
 	}
-
 }
 
 func TestNewHELLO(t *testing.T) {
@@ -698,6 +697,7 @@ func TestRERR_RoundTrip(t *testing.T) {
 		t.Fatalf("round trip failed:\nwant:\n%+v\ngot:\n%+v", rerr, newRERR)
 	}
 }
+
 func TestNewDATA(t *testing.T) {
 	tests := []struct {
 		name    string

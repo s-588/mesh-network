@@ -214,14 +214,6 @@ func formatDefault(r slog.Record, attrs map[string]any) string {
 	return b.String()
 }
 
-// Safe attribute getter
-func getAttr(attrs map[string]any, key string, defaultVal any) any {
-	if v, ok := attrs[key]; ok && v != nil {
-		return v
-	}
-	return defaultVal
-}
-
 // slog.Handler boilerplate
 func (h *RouterLogHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
-func (h *RouterLogHandler) WithGroup(_ string) slog.Handler       { return h }
+func (h *RouterLogHandler) WithGroup(_ string) slog.Handler      { return h }

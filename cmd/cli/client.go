@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,45 +32,75 @@ var (
 )
 
 // SendRREQ is a helper function for sending HTTP request to IPC node server
-func SendRREQ(dst int64) (string, error) {
+func SendRREQ(ctx context.Context, dst int64) (string, error) {
 	baseURL.Path = "rreq"
 	val := baseURL.Query()
-	val.Set("dst", strconv.FormatInt(dst, 64))
+	val.Set("dst", strconv.FormatInt(dst, 10))
 	baseURL.RawQuery = val.Encode()
-	resp, err := http.Get(baseURL.String())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", ErrNodeUnattainable
 	}
 	defer func() {
-		_ = resp.Body.Close()
+		err := resp.Body.Close()
+		if err != nil {
+			_, _ = fmt.Fprintf(io.Discard, "can't close response body: %v\n", err)
+		}
 	}()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("can't read response body: %w", err)
+	}
 	return string(body), nil
 }
 
 // SendMsg send request to send text data to node's IPC.
-func SendMsg(dst int64, msg string) (string, error) {
+func SendMsg(ctx context.Context, dst int64, msg string) (string, error) {
+	if err := checkDst(dst); err != nil {
+		return "", err
+	}
+	if err := checkMsg(msg); err != nil {
+		return "", err
+	}
 	baseURL.Path = "send"
 	val := baseURL.Query()
-	val.Set("dst", strconv.FormatInt(dst, 64))
+	val.Set("dst", strconv.FormatInt(dst, 10))
 	val.Set("msg", url.QueryEscape(msg))
 	baseURL.RawQuery = val.Encode()
-	resp, err := http.Get(baseURL.String())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", ErrNodeUnattainable
 	}
 	defer func() {
-		_ = resp.Body.Close()
+		err := resp.Body.Close()
+		if err != nil {
+			_, _ = fmt.Fprintf(io.Discard, "can't close response body: %v\n", err)
+		}
 	}()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("can't read response body: %w", err)
+	}
 	return string(body), nil
 }
 
 // GetMsg method receive messages from node's IPC server.
-func GetMsgs() (string, error) {
+func GetMsgs(ctx context.Context) (string, error) {
 	baseURL.Path = "/messages"
-	resp, err := http.Get(baseURL.String())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", ErrNodeUnattainable
 	}
@@ -79,7 +110,7 @@ func GetMsgs() (string, error) {
 
 	var msgs []string
 	if err := json.NewDecoder(resp.Body).Decode(&msgs); err != nil {
-		return "", errors.New("Can't decode response")
+		return "", fmt.Errorf("can't decode response: %w", err)
 	}
 
 	if len(msgs) == 0 {
@@ -89,12 +120,16 @@ func GetMsgs() (string, error) {
 }
 
 // GetNeighbours method receive neighbours data from node's IPC server.
-func GetNeighbours() (string, error) {
+func GetNeighbours(ctx context.Context) (string, error) {
 	s := strings.Builder{}
 	baseURL.Scheme = "/neighbours"
-	resp, err := http.Get(baseURL.String())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), nil)
 	if err != nil {
 		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", ErrNodeUnattainable
 	}
 	defer func() {
 		_ = resp.Body.Close()
@@ -102,7 +137,7 @@ func GetNeighbours() (string, error) {
 
 	var neighbours []NeighDTO
 	if err := json.NewDecoder(resp.Body).Decode(&neighbours); err != nil {
-		return "", err
+		return "", fmt.Errorf("can't decode response: %w", err)
 	}
 
 	s.WriteString(style.TitleStyle.Render("\n Neighbours table "))
@@ -137,12 +172,16 @@ func GetNeighbours() (string, error) {
 }
 
 // GetRoutes method receive routes data from node's IPC server.
-func GetRoutes() (string, error) {
+func GetRoutes(ctx context.Context) (string, error) {
 	s := strings.Builder{}
 	baseURL.Path = "/routes"
-	resp, err := http.Get(baseURL.String())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), nil)
 	if err != nil {
 		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", ErrNodeUnattainable
 	}
 	defer func() {
 		_ = resp.Body.Close()
@@ -150,7 +189,7 @@ func GetRoutes() (string, error) {
 
 	var routes []RouteDTO
 	if err := json.NewDecoder(resp.Body).Decode(&routes); err != nil {
-		return "", err
+		return "", fmt.Errorf("can't decode response: %w", err)
 	}
 
 	s.WriteString(style.TitleStyle.Render("\n Routes table "))

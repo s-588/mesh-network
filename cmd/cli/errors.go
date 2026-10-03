@@ -2,7 +2,6 @@ package cli
 
 import (
 	"errors"
-	"strconv"
 )
 
 var (
@@ -11,11 +10,8 @@ var (
 )
 
 // checkDst check if destination is match the requirements.
-func checkDst(dst string) error {
-	if dst == "" {
-		return errIncorrectDst
-	}
-	if num, err := strconv.ParseInt(dst, 10, 64); err != nil || num < 0 {
+func checkDst(dst int64) error {
+	if dst < 0 {
 		return errIncorrectDst
 	}
 	return nil

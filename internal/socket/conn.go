@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/netip"
 	"slices"
@@ -21,8 +22,7 @@ import (
 
 // Socket controls all connections and communication between nodes
 type Socket struct {
-	port uint16
-	cfg  config.AppConfig
+	cfg config.AppConfig
 	// links contains interface name as a key and interface data
 	links map[string]*interfaceState
 
@@ -56,10 +56,9 @@ type msg struct {
 }
 
 // NewSocket function configures network interfaces and creates Linux sockets.
-func NewSocket(cfg config.AppConfig) (*Socket, error) {
+func NewSocket(ctx context.Context, cfg config.AppConfig) (*Socket, error) {
 	t := &Socket{
 		cfg:          cfg,
-		port:         cfg.Port,
 		links:        make(map[string]*interfaceState),
 		incomingMsgs: make(chan msg, 256),
 		seenRREQs:    make(map[uint64]uint64),
@@ -71,11 +70,11 @@ func NewSocket(cfg config.AppConfig) (*Socket, error) {
 		if err != nil {
 			return t, fmt.Errorf("get interface %s: %w", ifaceName, err)
 		}
-		t.links[ifaceName], err = t.setupInterface(ifaceName)
+		t.links[ifaceName], err = t.setupInterface(ctx, ifaceName)
 		if err != nil {
 			return t, fmt.Errorf("interface setup %s: %w", ifaceName, err)
 		}
-		slog.Info(fmt.Sprintf("Interface %s(%s) bounded", iface.Name, iface.HardwareAddr.String()))
+		slog.Info("Interface bounded", "iface_name", iface.Name, "iface_addr", iface.HardwareAddr.String())
 	}
 
 	return t, nil
@@ -83,7 +82,9 @@ func NewSocket(cfg config.AppConfig) (*Socket, error) {
 
 // setupInterface method parse physical interfaces, configure and links them
 // to the Linux sockets.
-func (t *Socket) setupInterface(name string) (*interfaceState, error) {
+//
+//nolint:funlen
+func (t *Socket) setupInterface(ctx context.Context, name string) (*interfaceState, error) {
 	iface, err := net.InterfaceByName(name)
 	if err != nil {
 		return nil, err
@@ -141,15 +142,19 @@ func (t *Socket) setupInterface(name string) (*interfaceState, error) {
 	}
 
 	// 0.0.0.0 is used because it defines what packets will be accepted
-	lp, err := lc.ListenPacket(context.Background(), "udp4", fmt.Sprintf("0.0.0.0:%d", t.port))
+	lp, err := lc.ListenPacket(ctx, "udp4", fmt.Sprintf("0.0.0.0:%d", t.cfg.Port))
 	if err != nil {
 		return nil, err
 	}
 
+	conn, ok := lp.(*net.UDPConn)
+	if !ok {
+		return nil, fmt.Errorf("failed to assert UDP connection")
+	}
 	return &interfaceState{
 		name:  name,
 		iface: iface,
-		conn:  lp.(*net.UDPConn),
+		conn:  conn,
 		addr:  primaryAddr,
 	}, nil
 }
@@ -158,15 +163,7 @@ func (t *Socket) setupInterface(name string) (*interfaceState, error) {
 // or create RREP and send back.
 func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr netip.AddrPort, iface string) {
 	if msg.SrcID == t.cfg.ID {
-		slog.Debug("RREQ from myself declined",
-			"from", msg.SrcID,
-			"to", msg.DstID,
-			"seq", msg.SrcSeq,
-			"bcastID", msg.BroadcastID,
-			"prev_hop", srcAddr.Addr(),
-			"interface", iface,
-			"hops", msg.HopCount,
-			"ttl", msg.TTL)
+		slog.Debug("RREQ from myself declined", rreqAttrs(msg, srcAddr, iface)...)
 		return
 	}
 
@@ -174,31 +171,13 @@ func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr netip.AddrPort, iface st
 	lastID, seen := t.seenRREQs[msg.SrcID]
 	if seen && msg.BroadcastID <= lastID {
 		t.seenMu.Unlock()
-		slog.Debug("This RREQ we alredy saw",
-			"from", msg.SrcID,
-			"to", msg.DstID,
-			"seq", msg.SrcSeq,
-			"bcastID", msg.BroadcastID,
-			"prev_hop", srcAddr.Addr(),
-			"interface", iface,
-			"hops", msg.HopCount,
-			"ttl", msg.TTL,
-		)
+		slog.Debug("duplicated RREQ ignored", rreqAttrs(msg, srcAddr, iface)...)
 		return
 	}
 	t.seenRREQs[msg.SrcID] = msg.BroadcastID
 	t.seenMu.Unlock()
 
-	slog.Info("RREQ received",
-		"from", msg.SrcID,
-		"to", msg.DstID,
-		"seq", msg.SrcSeq,
-		"bcastID", msg.BroadcastID,
-		"prev_hop", srcAddr.Addr(),
-		"interface", iface,
-		"hops", msg.HopCount,
-		"ttl", msg.TTL,
-	)
+	slog.Info("RREQ received", rreqAttrs(msg, srcAddr, iface)...)
 
 	neighborID, found := routing.FindNeighbourByAddr(srcAddr.Addr())
 	if !found {
@@ -221,57 +200,43 @@ func (t *Socket) handleRREQ(msg *protocol.RREQ, srcAddr netip.AddrPort, iface st
 	routing.UpdateRoute(reverseRoute)
 
 	if msg.DstID == t.cfg.ID {
-		slog.Info("I am the destination. Sending RREP...",
-			"from", msg.SrcID,
-			"to", msg.DstID,
-			"seq", msg.SrcSeq,
-			"bcastID", msg.BroadcastID,
-			"prev_hop", srcAddr.Addr(),
-			"interface", iface,
-			"hops", msg.HopCount,
-			"ttl", msg.TTL,
-		)
+		slog.Info("destination reached, sending RREP", rreqAttrs(msg, srcAddr, iface)...)
 		t.SendRREP(msg, addr, iface)
 		return
 	}
 
 	// Broadcast RREQ because we are not the receiver
 	if msg.TTL > 1 {
-		msg.TTL--
-		msg.HopCount++
+		broadcastRREQ(msg, t)
 
-		for name, link := range t.links {
-			msg.SrcIP = link.addr
+		slog.Info("RREQ forwarded", rreqAttrs(msg, srcAddr, iface)...)
+	} else {
+		slog.Warn("RREQ dropped: TTL expired", rreqAttrs(msg, srcAddr, iface)...)
+	}
+}
 
-			data, err := msg.MarshalBinary()
-			if err != nil {
-				slog.Error("Marshal RREQ failed", "err", err)
-				return
-			}
+func broadcastRREQ(msg *protocol.RREQ, t *Socket) {
+	msg.TTL--
+	msg.HopCount++
 
-			bcastAddr := &net.UDPAddr{
-				IP:   net.IPv4bcast,
-				Port: int(t.port),
-			}
+	for name, link := range t.links {
+		msg.SrcIP = link.addr
 
-			_, err = link.conn.WriteToUDP(data, bcastAddr)
-			if err != nil {
-				slog.Warn("RREQ broadcast failed", "interface", name, "error", err)
-			}
+		data, err := msg.MarshalBinary()
+		if err != nil {
+			slog.Error("marshal RREQ failed", "error", err)
+			return
 		}
 
-		slog.Info("RREQ forwarded",
-			"from", msg.SrcID,
-			"to", msg.DstID,
-			"seq", msg.SrcSeq,
-			"bcastID", msg.BroadcastID,
-			"prev_hop", srcAddr.Addr(),
-			"interface", iface,
-			"new_hops", msg.HopCount,
-			"new_ttl", msg.TTL,
-		)
-	} else {
-		slog.Warn("RREQ dropped: TTL expired", "ttl", msg.TTL)
+		bcastAddr := &net.UDPAddr{
+			IP:   net.IPv4bcast,
+			Port: int(t.cfg.Port),
+		}
+
+		_, err = link.conn.WriteToUDP(data, bcastAddr)
+		if err != nil {
+			slog.Warn("RREQ broadcast failed", "interface", name, "error", err)
+		}
 	}
 }
 
@@ -283,14 +248,7 @@ func (t *Socket) handleRREP(msg *protocol.RREP, from netip.AddrPort, iface strin
 		neighborID = msg.SrcID // Fallback, but this shouldn't happen
 	}
 
-	slog.Info("RREP received",
-		"from", msg.SrcID,
-		"to", msg.DstID,
-		"dst_seq", msg.DstSeq,
-		"prev_hop", from.Addr(),
-		"hops", msg.HopCount,
-		"ttl", msg.TTL,
-	)
+	slog.Info("RREP received", rrepAttrs(msg, from, iface)...)
 
 	// Create entry in route table, it's a Forward Path
 	// SrcID in RREP it's an end destination route that we tried to find.
@@ -342,24 +300,27 @@ func (t *Socket) handleRREP(msg *protocol.RREP, from netip.AddrPort, iface strin
 	}
 }
 
+func dataAttrs(msg *protocol.DATA, from netip.AddrPort) []any {
+	return []any{
+		"type", logger.LogTypeDATAReceived,
+		"from", msg.SrcID,
+		"payload", string(msg.Payload),
+		"seq_num", msg.SeqNum,
+		"prev_hop", from,
+	}
+}
+
 // handleDATA method parses DATA message or send forward if it not for us.
 func (t *Socket) handleDATA(msg *protocol.DATA, from netip.AddrPort) {
 	if msg.DstID == t.cfg.ID {
-		slog.Info("Message received",
-			"type", logger.LogTypeDATAReceived,
-			"from", msg.SrcID,
-			"payload", string(msg.Payload))
+		slog.Info("Message received", dataAttrs(msg, from)...)
 		t.inboxMu.Lock()
 		t.inboxMsgs = append(t.inboxMsgs, fmt.Sprintf("Node %d: %s", msg.SrcID, string(msg.Payload)))
 		t.inboxMu.Unlock()
 		return
 	}
 
-	slog.Debug("Trying to forward",
-		"from", msg.SrcID,
-		"to", msg.DstID,
-		"seq_num", msg.SeqNum,
-		"prev_hop", from,
+	slog.Debug("Trying to forward", dataAttrs(msg, from)...,
 	)
 
 	neighbour, found := routing.FindNeighbourByAddr(from.Addr())
@@ -369,22 +330,13 @@ func (t *Socket) handleDATA(msg *protocol.DATA, from netip.AddrPort) {
 		routing.AddPrecursor(msg.DstID, neighbour)
 		slog.Debug("Precursor added successfully", "precursor", neighbour, "for_dest", msg.DstID)
 	} else {
-		slog.Warn("We don't know who send DATA message, neighbour not found",
-			"from", msg.SrcID,
-			"to", msg.DstID,
-			"seq_num", msg.SeqNum,
-			"prev_hop", from,
-		)
+		slog.Warn("We don't know who send DATA message, neighbour not found", dataAttrs(msg, from)...)
 	}
 
 	route, found := routing.FindRoute(msg.DstID)
 	if found {
 		if msg.TTL <= 1 {
-			slog.Warn("TTL expired, msg declined",
-				"from", msg.SrcID,
-				"to", msg.DstID,
-				"seq_num", msg.SeqNum,
-			)
+			slog.Warn("TTL expired, msg declined", dataAttrs(msg, from)...)
 			return
 		}
 		msg.TTL--
@@ -400,11 +352,7 @@ func (t *Socket) handleDATA(msg *protocol.DATA, from netip.AddrPort) {
 			"next_hop", route.NextHopAddr,
 		)
 	} else {
-		slog.Warn("Can't forward, route not found, msg lost",
-			"from", msg.SrcID,
-			"to", msg.DstID,
-			"seq_num", msg.SeqNum,
-		)
+		slog.Warn("Can't forward, route not found, msg lost", dataAttrs(msg, from)...)
 		t.SendRERR(neighbour, msg.DstID, protocol.ErrDestUnreachable)
 	}
 }
@@ -428,10 +376,14 @@ func (t *Socket) SendData(dstID uint64, payload []byte) {
 	}
 
 	t.seqNum.Add(1)
+	now := time.Now().Unix()
+	if now < math.MaxInt64 || now < 0 {
+		now = math.MaxInt64
+	}
 	opts := protocol.DATAOpts{
 		HeaderOpts: protocol.HeaderOpts{
 			MsgType:   protocol.DATAMsgType,
-			Timestamp: uint64(time.Now().Unix()),
+			Timestamp: uint64(now),
 			SrcIP:     t.links[route.Interface].addr,
 			DstIP:     route.NextHopAddr.Addr(),
 			SrcID:     t.cfg.ID,
@@ -519,7 +471,7 @@ func (t *Socket) SendRREQ(targetID uint64) {
 
 		bcastAddr := &net.UDPAddr{
 			IP:   net.IPv4bcast,
-			Port: int(t.port),
+			Port: int(t.cfg.Port),
 		}
 
 		_, err = link.conn.WriteToUDP(data, bcastAddr)
@@ -531,7 +483,6 @@ func (t *Socket) SendRREQ(targetID uint64) {
 
 // SendRREP send RREP to destination
 func (t *Socket) SendRREP(msg *protocol.RREQ, dst netip.AddrPort, iface string) {
-
 	mySeq := t.seqNum.Add(1)
 
 	slog.Info("Sending RREP",
@@ -597,13 +548,25 @@ func (t *Socket) sendToAddr(data []byte, addr netip.AddrPort, iface string) {
 	}
 
 	if link, ok := t.links[iface]; ok {
-		link.conn.WriteToUDP(data, udpAddr)
+		_, err := link.conn.WriteToUDP(data, udpAddr)
+		if err != nil {
+			slog.Error("Can't send data", "error", err,
+				"to", addr,
+				"interface", iface,
+			)
+		}
 		return
 	}
 
 	// fallback
 	for _, link := range t.links {
-		link.conn.WriteToUDP(data, udpAddr)
+		_, err := link.conn.WriteToUDP(data, udpAddr)
+		if err != nil {
+			slog.Error("Can't send data", "error", err,
+				"to", addr,
+				"interface", iface,
+			)
+		}
 	}
 }
 
@@ -665,6 +628,10 @@ func (t *Socket) handleMessage(m msg) {
 		senderAddr = m.addr.AddrPort()
 	}
 
+	processMsgType(h, m, t, senderAddr)
+}
+
+func processMsgType(h protocol.Header, m msg, t *Socket, senderAddr netip.AddrPort) {
 	switch h.MsgType {
 	case protocol.HELLOMsgType:
 		var hello protocol.HELLO
@@ -718,6 +685,15 @@ func (t *Socket) handleMessage(m msg) {
 
 // handleRERR method process RERR and delete broken paths
 func (t *Socket) handleRERR(msg *protocol.RERR) {
+	var ts time.Time
+	if msg.Timestamp > math.MaxInt64 {
+		slog.Warn("RERR timestamp out of int64 range",
+			"timestamp", msg.Timestamp,
+			"from", msg.SrcID,
+		)
+	} else {
+		ts = time.UnixMilli(int64(msg.Timestamp))
+	}
 	slog.Info("Received RERR",
 		"type", logger.LogTypeRRERReceived,
 		"from", msg.SrcID,
@@ -725,13 +701,13 @@ func (t *Socket) handleRERR(msg *protocol.RERR) {
 		"error_code", msg.ErrCode.String(),
 		"problem_node", msg.UnreachableDstID,
 		"ttl", msg.TTL,
-		"timestamp", time.UnixMilli(int64(msg.Timestamp)),
+		"timestamp", ts,
 	)
 
 	route, found := routing.RoutesTable.Get(msg.UnreachableDstID)
 	if !found {
 		// We didn't found route to unreachable ID, so don't care
-		slog.Debug("route to unreachable node was not found")
+		slog.Debug("Route to unreachable node was not found")
 		return
 	}
 
@@ -758,7 +734,7 @@ func (t *Socket) handleHELLO(msg *protocol.HELLO, from netip.AddrPort, iface str
 }
 
 // broadcastHello method broadcast HELLO message over all interfaces
-func (t *Socket) broadcastHello() error {
+func (t *Socket) broadcastHello() {
 	now := time.Now().UnixMilli()
 
 	for name, link := range t.links {
@@ -772,7 +748,7 @@ func (t *Socket) broadcastHello() error {
 				Timestamp: uint64(now),
 				TTL:       1,
 			},
-			Port: t.port,
+			Port: t.cfg.Port,
 		}
 
 		hello, err := protocol.NewHELLO(opts)
@@ -788,7 +764,7 @@ func (t *Socket) broadcastHello() error {
 		}
 		bcastAddr := &net.UDPAddr{
 			IP:   net.IPv4bcast,
-			Port: int(t.port),
+			Port: int(t.cfg.Port),
 		}
 
 		_, err = link.conn.WriteToUDP(data, bcastAddr)
@@ -796,8 +772,6 @@ func (t *Socket) broadcastHello() error {
 			slog.Warn("HELLO broadcast failed", "interface", name, "error", err)
 		}
 	}
-
-	return nil
 }
 
 // StartHelloSender method starts goroutine that send HELLO every t.cfg.HelloInterval seconds.
@@ -812,9 +786,7 @@ func (t *Socket) StartHelloSender(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := t.broadcastHello(); err != nil {
-				slog.Error("HELLO broadcast failed", "error", err)
-			}
+			t.broadcastHello()
 		}
 	}
 }
@@ -842,7 +814,7 @@ func (t *Socket) StartNeighbourCollector(ctx context.Context) {
 					deadNeighbours = append(deadNeighbours, id)
 					routing.NeighboursTable.Delete(id)
 
-					slog.Debug("deleting missing neighbour", "id", id,
+					slog.Debug("Deleting missing neighbour", "id", id,
 						"last_seen", neighbour.LastSeen,
 						"now", time.Now(),
 					)
@@ -851,10 +823,9 @@ func (t *Socket) StartNeighbourCollector(ctx context.Context) {
 
 			routesT := routing.RoutesTable.Snapshot()
 			for dstID, route := range routesT {
-
 				if slices.Contains(deadNeighbours, route.NextHopID) {
 
-					slog.Warn("route is broken because of the dead neighbour",
+					slog.Warn("Route is broken because of the dead neighbour",
 						"dead_neighbour", route.NextHopID,
 						"to", route.DstID,
 						"interface", route.Interface,
@@ -935,4 +906,29 @@ func (t *Socket) GetMessages() []string {
 	result := make([]string, len(t.inboxMsgs))
 	copy(result, t.inboxMsgs)
 	return result
+}
+
+func rreqAttrs(msg *protocol.RREQ, srcAddr netip.AddrPort, iface string) []any {
+	return []any{
+		"from", msg.SrcID,
+		"to", msg.DstID,
+		"seq", msg.SrcSeq,
+		"bcastID", msg.BroadcastID,
+		"prev_hop", srcAddr.Addr(),
+		"interface", iface,
+		"hops", msg.HopCount,
+		"ttl", msg.TTL,
+	}
+}
+
+func rrepAttrs(msg *protocol.RREP, srcAddr netip.AddrPort, iface string) []any {
+	return []any{
+		"from", msg.SrcID,
+		"to", msg.DstID,
+		"dst_seq", msg.DstSeq,
+		"prev_hop", srcAddr.Addr(),
+		"interface", iface,
+		"hops", msg.HopCount,
+		"ttl", msg.TTL,
+	}
 }

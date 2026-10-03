@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand"
 	"os"
 	"path"
@@ -18,21 +19,34 @@ import (
 	"github.com/joho/godotenv"
 )
 
+var defaultConfig = Config{
+	AppConfig: AppConfig{
+		Port:          6040,
+		Interfaces:    []string{"eth0"},
+		ID:            1234,
+		TTL:           20,
+		Lifetime:      30,
+		HelloInterval: 5,
+	},
+	LogConfig: LogConfig{
+		Level:   "INFO",
+		LogFile: time.Now().Format(time.DateTime) + ".log",
+	},
+}
+
+// Flag variables for command line arguments
 var (
-	defaultConfig = Config{
-		AppConfig: AppConfig{
-			Port:          6040,
-			Interfaces:    []string{"eth0"},
-			ID:            1234,
-			TTL:           20,
-			Lifetime:      30,
-			HelloInterval: 5,
-		},
-		LogConfig: LogConfig{
-			Level:   "INFO",
-			LogFile: time.Now().Format(time.DateTime) + ".log",
-		},
-	}
+	flagIsDaemon = flag.Bool("daemon", false, "Start without GUI as daemon. You can't be abble to do anything, only view logs")
+
+	flagPort          = flag.Uint("port", 0, "Port to listen on")
+	flagInterface     = flag.String("interface", "", "One or multiple interfaces to listen on. Must be set with flag or env variable")
+	flagID            = flag.Uint64("id", 0, "ID of this node. Must be set with flag or env variable")
+	flagTTL           = flag.Uint("ttl", 0, "Time To Live for messages")
+	flagLifetime      = flag.Uint("lifetime", 0, "Lifetime of messages and entrys in route table")
+	flagHelloInterval = flag.Uint("hello_interval", 0, "Interval in which HELLO messages will be broadcasted")
+
+	flagLogFile  = flag.String("log_file", "", "Log filename or full path")
+	flagLogLevel = flag.String("log_level", "", "Level of logs that will be displayed")
 )
 
 // Config struct contain all variables under the users control
@@ -60,22 +74,13 @@ type LogConfig struct {
 
 // NewConfig parse environment variables, flags
 // and creates new instances of Config
+//
+//nolint:funlen,gocyclo // function is long but it is only parsing and validating config
 func NewConfig() (Config, error) {
 	cfg := defaultConfig
 
 	_ = godotenv.Load()
 
-	flagIsDaemon := flag.Bool("daemon", false, "Start without GUI as daemon. You can't be abble to do anything, only view logs")
-
-	flagPort := flag.Uint("port", 0, "Port to listen on")
-	flagInterface := flag.String("interface", "", "One or multiple interfaces to listen on. Must be set with flag or env variable")
-	flagID := flag.Uint64("id", 0, "ID of this node. Must be set with flag or env variable")
-	flagTTL := flag.Uint("ttl", 0, "Time To Live for messages")
-	flagLifetime := flag.Uint("lifetime", 0, "Lifetime of messages and entrys in route table")
-	flagHelloInterval := flag.Uint("hello_interval", 0, "Interval in which HELLO messages will be broadcasted")
-
-	flagLogFile := flag.String("log_file", "", "Log filename or full path")
-	flagLogLevel := flag.String("log_level", "", "Level of logs that will be displayed")
 	flag.Parse()
 
 	err := applyEnv(&cfg)
@@ -84,52 +89,65 @@ func NewConfig() (Config, error) {
 	}
 
 	if *flagIsDaemon {
-		cfg.IsDaemon = bool(*flagIsDaemon)
+		cfg.IsDaemon = *flagIsDaemon
+	}
+
+	if *flagLogFile != "" {
+		cfg.LogFile = *flagLogFile
+	}
+
+	if *flagLogLevel != "" {
+		cfg.Level = *flagLogLevel
 	}
 
 	if *flagPort != 0 {
-		cfg.Port = uint16(*flagPort)
+		port := *flagPort
+		if port < 1 || port > math.MaxUint16 {
+			return cfg, fmt.Errorf("invalid port number: %d", port)
+		}
+		cfg.Port = uint16(port)
 	}
 
 	if *flagInterface != "" {
-		ifacesStr := string(*flagInterface)
+		ifacesStr := *flagInterface
 		cfg.Interfaces = strings.Split(ifacesStr, ",")
 	}
 
 	if *flagID != 0 {
-		cfg.ID = uint64(*flagID)
+		cfg.ID = *flagID
 	}
 
 	if *flagTTL != 0 {
-		cfg.TTL = uint8(*flagTTL)
+		ttl := *flagTTL
+		if ttl < 1 || ttl > math.MaxUint8 {
+			return cfg, fmt.Errorf("invalid TTL value: %d", ttl)
+		}
+		cfg.TTL = uint8(ttl)
 	}
 
 	if *flagLifetime != 0 {
-		cfg.Lifetime = uint32(*flagLifetime)
+		lifetime := *flagLifetime
+		if lifetime < 1 || lifetime > math.MaxUint32 {
+			return cfg, fmt.Errorf("invalid lifetime value: %d", lifetime)
+		}
+		cfg.Lifetime = uint32(lifetime)
 	}
 
 	if *flagHelloInterval != 0 {
 		cfg.HelloInterval = int(*flagHelloInterval)
 	}
 
-	if *flagLogFile != "" {
-		cfg.LogFile = string(*flagLogFile)
-	}
-
-	if *flagLogLevel != "" {
-		cfg.Level = string(*flagLogLevel)
-	}
-
 	if cfg.ID == 0 {
-		// Use math/rand less secure than crypto/rand but we don't need
-		// this security for a random number because it will be
-		// randomized by Snowflake generator
-		node, err := snowflake.NewNode(rand.Int63n(1024))
+		seed := rand.NewSource(time.Now().Unix())
+		node, err := snowflake.NewNode(seed.Int63())
 		if err != nil {
 			return cfg, fmt.Errorf("creation snowflake id failed: %w", err)
 		}
 		id := node.Generate().Int64()
 		slog.Warn("ID was not set, generating Snowflake ID", "id", id)
+		if id < 0 {
+			return cfg, fmt.Errorf("generated Snowflake ID is negative: %d", id)
+		}
 		cfg.ID = uint64(id)
 	}
 
@@ -137,6 +155,8 @@ func NewConfig() (Config, error) {
 }
 
 // applyEnv set values from environment variables to cfg
+//
+//nolint:funlen,gocyclo // function is long but it is only applying envs to config
 func applyEnv(cfg *Config) error {
 	if s := os.Getenv("PORT"); s != "" {
 		v, err := strconv.ParseUint(s, 10, 16)
@@ -167,13 +187,20 @@ func applyEnv(cfg *Config) error {
 		if err != nil {
 			return fmt.Errorf("parse TTL: %w", err)
 		}
+		if v < 1 || v > math.MaxUint8 {
+			return fmt.Errorf("invalid TTL value: %d", v)
+		}
 		cfg.TTL = uint8(v)
+
 	}
 
 	if s := os.Getenv("LIFETIME"); s != "" {
 		v, err := strconv.ParseUint(s, 10, 64)
 		if err != nil {
 			return fmt.Errorf("parse LIFETIME: %w", err)
+		}
+		if v < 1 || v > math.MaxUint32 {
+			return fmt.Errorf("invalid lifetime value: %d", v)
 		}
 		cfg.Lifetime = uint32(v)
 	}
@@ -182,6 +209,9 @@ func applyEnv(cfg *Config) error {
 		v, err := strconv.ParseUint(s, 10, 64)
 		if err != nil {
 			return fmt.Errorf("parse HELLO_INTERVAL: %w", err)
+		}
+		if v < 1 || v > math.MaxInt {
+			return fmt.Errorf("invalid HELLO_INTERVAL value: %d", v)
 		}
 		cfg.HelloInterval = int(v)
 	}

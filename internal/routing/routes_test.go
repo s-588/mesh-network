@@ -35,7 +35,8 @@ func TestTable_Get(t *testing.T) {
 			10,
 			true,
 		},
-		{name: "Not found",
+		{
+			name: "Not found",
 			args: args{
 				id: 2,
 			},

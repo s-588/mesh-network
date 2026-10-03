@@ -18,22 +18,19 @@ import (
 // ownID is the node ID used in unit tests for "this" socket.
 const ownID uint64 = 99
 
-var (
-	testCfg = config.AppConfig{
-		ID:            ownID,
-		Lifetime:      30,
-		TTL:           8,
-		HelloInterval: 1,
-		Port:          8040,
-	}
-)
+var testCfg = config.AppConfig{
+	ID:            ownID,
+	Lifetime:      30,
+	TTL:           8,
+	HelloInterval: 1,
+	Port:          8040,
+}
 
 // newTestSocket builds a Socket for unit tests only.
 // It does not open real network interfaces.
 func newTestSocket(t *testing.T) *Socket {
 	t.Helper()
 	return &Socket{
-		port:         8040,
 		cfg:          testCfg,
 		links:        make(map[string]*interfaceState),
 		incomingMsgs: make(chan msg, 256),
@@ -240,6 +237,7 @@ func TestSocket_handleRREQ(t *testing.T) {
 		})
 	}
 }
+
 func TestSocket_handleRREQ_concurrentDuplicates(t *testing.T) {
 	s := newTestSocket(t)
 	withLocalUDP(t, s, "eth0")
@@ -303,7 +301,7 @@ func TestSocket_handleRREP(t *testing.T) {
 		s.pendingMu.Lock()
 		defer s.pendingMu.Unlock()
 		if _, ok := s.pendingMsgs[55]; ok {
-			t.Error("pendingMsgs[55] should have been deleted after recieving route reply to it")
+			t.Error("pendingMsgs[55] should have been deleted after receiving route reply to it")
 		}
 	})
 
@@ -712,17 +710,13 @@ func TestSocket_handleHELLO(t *testing.T) {
 func TestSocket_broadcastHello(t *testing.T) {
 	t.Run("empty links returns nil", func(t *testing.T) {
 		s := newTestSocket(t)
-		if err := s.broadcastHello(); err != nil {
-			t.Errorf("broadcastHello() error = %v, want nil", err)
-		}
+		s.broadcastHello()
 	})
 
 	t.Run("with link does not return error", func(t *testing.T) {
 		s := newTestSocket(t)
 		withLocalUDP(t, s, "eth0")
-		if err := s.broadcastHello(); err != nil {
-			t.Errorf("broadcastHello() error = %v, want nil", err)
-		}
+		s.broadcastHello()
 	})
 }
 
