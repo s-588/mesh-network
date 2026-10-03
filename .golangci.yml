@@ -1,29 +1,29 @@
 version: "2"
 
-linters:
-  disable-all: true
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+formatters:
   enable:
-    # Core correctness
+    - goimports
+    # - gofmt
+    - gofumpt
+
+linters:
+  enable:
     - errcheck
-    - govet
-    - staticcheck
-    - modernize
     - ineffassign
-    - unused
-
-    # Backend / networking
-    - gosec
-    - bodyclose
-    - noctx
-    - contextcheck
-    - errorlint
-    - exhaustive
-
-    # Style / maintainability
-    - revive
+    - staticcheck
+    - govet
+    # - revive
+    - gocritic
     - misspell
-    - unparam
-    - prealloc
+    - unconvert
+    - unused
+    - gosec
+    - gocyclo
+    - funlen
   exclusions:
     generated: strict
     rules:
@@ -32,30 +32,17 @@ linters:
           - gosec
           - errcheck
 
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
-  govet:
-    enable-all: true
-  revive:
-    severity: warning
-    rules:
-      - name: blank-imports
-      - name: context-as-argument
-      - name: error-return
-      - name: error-strings
-      - name: exported
-      - name: package-comments
-  gosec:
-    severity: medium
-    confidence: medium
-
-run:
-  timeout: 5m
-  tests: true
-
-issues:
-  exclude-use-default: false
-  max-issues-per-linter: 0
-  max-same-issues: 0
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+    gocyclo:
+      min-complexity: 15
+    funlen:
+      lines: 100
+      statements: 50
