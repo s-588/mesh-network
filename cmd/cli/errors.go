@@ -2,25 +2,31 @@ package cli
 
 import (
 	"errors"
+	"fmt"
+	"strings"
+	"unicode/utf8"
 )
+
+// MaxMsgLen is the largest user payload accepted by the CLI and the IPC server.
+// It stays under a single UDP datagram and a localhost query string.
+const MaxMsgLen = 1024
 
 var (
-	errIncorrectDst = errors.New("incorrect destination ID")
-	errEmptyMsg     = errors.New("message payload must not be empty")
+	errEmptyMsg   = errors.New("message must not be empty or only whitespace")
+	errMsgTooLong = fmt.Errorf("message is too long (max %d bytes)", MaxMsgLen)
+	errMsgNotUTF8 = errors.New("message must be valid text")
 )
 
-// checkDst check if destination is match the requirements.
-func checkDst(dst int64) error {
-	if dst < 0 {
-		return errIncorrectDst
-	}
-	return nil
-}
-
-// checkMsg check if message is match the requirements.
-func checkMsg(msg string) error {
-	if msg == "" {
+// CheckMsg reports whether msg can be sent to another node.
+func CheckMsg(msg string) error {
+	if strings.TrimSpace(msg) == "" {
 		return errEmptyMsg
+	}
+	if len(msg) > MaxMsgLen {
+		return errMsgTooLong
+	}
+	if !utf8.ValidString(msg) {
+		return errMsgNotUTF8
 	}
 	return nil
 }

@@ -1,0 +1,32 @@
+package ipc
+
+// RouteDTO is the JSON DTO for a route entry returned by the IPC server.
+type RouteDTO struct {
+	DstID     uint64 `json:"dst_id"`
+	NextHopID uint64 `json:"next_hop_id"`
+	NextHop   string `json:"next_hop"`
+	Hops      int    `json:"hops"`
+	Seq       uint32 `json:"seq"`
+	Iface     string `json:"iface"`
+}
+
+// NeighDTO is the JSON DTO for a neighbour entry returned by the IPC server.
+type NeighDTO struct {
+	ID       uint64 `json:"id"`
+	Addr     string `json:"addr"`
+	LastSeen string `json:"last_seen"`
+	Iface    string `json:"iface"`
+}
+
+// ConfigDTO is the JSON DTO for the running node's configuration.
+type ConfigDTO struct {
+	ID            uint64   `json:"id"`
+	Port          uint16   `json:"port"`
+	Interfaces    []string `json:"interfaces"`
+	TTL           uint8    `json:"ttl"`
+	Lifetime      uint32   `json:"lifetime"`
+	HelloInterval int      `json:"hello_interval"`
+	LogLevel      string   `json:"log_level"`
+	LogFile       string   `json:"log_file"`
+	IsDaemon      bool     `json:"is_daemon"`
+}

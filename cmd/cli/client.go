@@ -1,154 +1,63 @@
-// package cli contains client code for command line.
-// It uses HTTP requests to node's IPC server to retrieve information.
+// Package cli pretty-prints mesh-node IPC data for the terminal and hosts
+// the local IPC HTTP server used by the CLI and the TUI.
 package cli
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/s-588/mesh-network/cmd/style"
+	"github.com/s-588/mesh-network/internal/ipc"
 )
 
-// IPCPort is a port where active local node is listening.
-const IPCPort = ":6242"
-
-var (
-	baseURL = url.URL{
-		Scheme: "http",
-		Host:   net.JoinHostPort("127.0.0.1", IPCPort),
-	}
-
-	ErrNodeUnattainable = errors.New("can't connect to background process. Is node started?")
-	ErrNoRecords        = errors.New("no records")
+// Column widths fit a full uint64 node ID (20 digits), an IPv4 host:port
+// ("255.255.255.255:65535"), and a "2006-01-02 15:04:05" timestamp.
+const (
+	colNodeID = 20
+	colAddr   = 22
+	colSeen   = 20
+	colIface  = 12
+	colHops   = 6
+	colSeq    = 10
 )
 
-// SendRREQ is a helper function for sending HTTP request to IPC node server
-func SendRREQ(ctx context.Context, dst int64) (string, error) {
-	baseURL.Path = "rreq"
-	val := baseURL.Query()
-	val.Set("dst", strconv.FormatInt(dst, 10))
-	baseURL.RawQuery = val.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", ErrNodeUnattainable
-	}
-	defer func() {
-		err := resp.Body.Close()
-		if err != nil {
-			_, _ = fmt.Fprintf(io.Discard, "can't close response body: %v\n", err)
-		}
-	}()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("can't read response body: %w", err)
-	}
-	return string(body), nil
-}
-
-// SendMsg send request to send text data to node's IPC.
-func SendMsg(ctx context.Context, dst int64, msg string) (string, error) {
-	if err := checkDst(dst); err != nil {
-		return "", err
-	}
-	if err := checkMsg(msg); err != nil {
-		return "", err
-	}
-	baseURL.Path = "send"
-	val := baseURL.Query()
-	val.Set("dst", strconv.FormatInt(dst, 10))
-	val.Set("msg", url.QueryEscape(msg))
-	baseURL.RawQuery = val.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", ErrNodeUnattainable
-	}
-	defer func() {
-		err := resp.Body.Close()
-		if err != nil {
-			_, _ = fmt.Fprintf(io.Discard, "can't close response body: %v\n", err)
-		}
-	}()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("can't read response body: %w", err)
-	}
-	return string(body), nil
-}
-
-// GetMsg method receive messages from node's IPC server.
+// GetMsgs receives messages from the node's IPC server.
 func GetMsgs(ctx context.Context) (string, error) {
-	baseURL.Path = "/messages"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), nil)
+	msgs, err := ipc.GetMessages(ctx)
 	if err != nil {
 		return "", err
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", ErrNodeUnattainable
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-
-	var msgs []string
-	if err := json.NewDecoder(resp.Body).Decode(&msgs); err != nil {
-		return "", fmt.Errorf("can't decode response: %w", err)
-	}
-
 	if len(msgs) == 0 {
-		return "", ErrNoRecords
+		return "No messages yet.\n", nil
 	}
-	return strings.Join(msgs, "\n"), nil
+	text := strings.Join(msgs, "\n")
+	if !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	return text, nil
 }
 
-// GetNeighbours method receive neighbours data from node's IPC server.
+// GetNeighbours receives neighbours data from the node's IPC server.
 func GetNeighbours(ctx context.Context) (string, error) {
-	s := strings.Builder{}
-	baseURL.Scheme = "/neighbours"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), nil)
+	neighbours, err := ipc.GetNeighbours(ctx)
 	if err != nil {
 		return "", err
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", ErrNodeUnattainable
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
 
-	var neighbours []NeighDTO
-	if err := json.NewDecoder(resp.Body).Decode(&neighbours); err != nil {
-		return "", fmt.Errorf("can't decode response: %w", err)
-	}
-
+	s := strings.Builder{}
 	s.WriteString(style.TitleStyle.Render("\n Neighbours table "))
+	s.WriteString("\n")
 	if len(neighbours) == 0 {
-		return "", ErrNoRecords
+		s.WriteString("  No neighbours yet.\n")
+		return s.String(), nil
 	}
 
-	c1 := lipgloss.NewStyle().Width(10).Render
-	c2 := lipgloss.NewStyle().Width(25).Render
-	c3 := lipgloss.NewStyle().Width(20).Render
-	c4 := lipgloss.NewStyle().Width(10).Render
+	c1 := lipgloss.NewStyle().Width(colNodeID).Render
+	c2 := lipgloss.NewStyle().Width(colAddr).Render
+	c3 := lipgloss.NewStyle().Width(colSeen).Render
+	c4 := lipgloss.NewStyle().Width(colIface).Render
 
 	header := lipgloss.JoinHorizontal(lipgloss.Left,
 		c1(style.ResultHeaderStyle.Render("ID")),
@@ -157,7 +66,9 @@ func GetNeighbours(ctx context.Context) (string, error) {
 		c4(style.ResultHeaderStyle.Render("Iface")),
 	)
 	s.WriteString(header)
-	s.WriteString(lipgloss.NewStyle().Foreground(style.Muted).Render(strings.Repeat("─", 65)))
+	s.WriteString("\n")
+	s.WriteString(lipgloss.NewStyle().Foreground(style.Muted).Render(strings.Repeat("─", colNodeID+colAddr+colSeen+colIface)))
+	s.WriteString("\n")
 
 	for _, n := range neighbours {
 		row := lipgloss.JoinHorizontal(lipgloss.Left,
@@ -167,41 +78,31 @@ func GetNeighbours(ctx context.Context) (string, error) {
 			c4(lipgloss.NewStyle().Foreground(style.Accent2).Render(n.Iface)),
 		)
 		s.WriteString(row)
+		s.WriteString("\n")
 	}
 	return s.String(), nil
 }
 
-// GetRoutes method receive routes data from node's IPC server.
+// GetRoutes receives routes data from the node's IPC server.
 func GetRoutes(ctx context.Context) (string, error) {
-	s := strings.Builder{}
-	baseURL.Path = "/routes"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), nil)
+	routes, err := ipc.GetRoutes(ctx)
 	if err != nil {
 		return "", err
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", ErrNodeUnattainable
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
 
-	var routes []RouteDTO
-	if err := json.NewDecoder(resp.Body).Decode(&routes); err != nil {
-		return "", fmt.Errorf("can't decode response: %w", err)
-	}
-
+	s := strings.Builder{}
 	s.WriteString(style.TitleStyle.Render("\n Routes table "))
+	s.WriteString("\n")
 	if len(routes) == 0 {
-		return "", ErrNoRecords
+		s.WriteString("  No routes yet.\n")
+		return s.String(), nil
 	}
 
-	c1 := lipgloss.NewStyle().Width(10).Render
-	c2 := lipgloss.NewStyle().Width(25).Render
-	c3 := lipgloss.NewStyle().Width(8).Render
-	c4 := lipgloss.NewStyle().Width(8).Render
-	c5 := lipgloss.NewStyle().Width(10).Render
+	c1 := lipgloss.NewStyle().Width(colNodeID).Render
+	c2 := lipgloss.NewStyle().Width(colAddr).Render
+	c3 := lipgloss.NewStyle().Width(colHops).Render
+	c4 := lipgloss.NewStyle().Width(colSeq).Render
+	c5 := lipgloss.NewStyle().Width(colIface).Render
 
 	header := lipgloss.JoinHorizontal(lipgloss.Left,
 		c1(style.ResultHeaderStyle.Render("DstID")),
@@ -211,7 +112,9 @@ func GetRoutes(ctx context.Context) (string, error) {
 		c5(style.ResultHeaderStyle.Render("Iface")),
 	)
 	s.WriteString(header)
-	s.WriteString(lipgloss.NewStyle().Foreground(style.Muted).Render(strings.Repeat("─", 65)))
+	s.WriteString("\n")
+	s.WriteString(lipgloss.NewStyle().Foreground(style.Muted).Render(strings.Repeat("─", colNodeID+colAddr+colHops+colSeq+colIface)))
+	s.WriteString("\n")
 
 	for _, r := range routes {
 		row := lipgloss.JoinHorizontal(lipgloss.Left,
@@ -222,6 +125,38 @@ func GetRoutes(ctx context.Context) (string, error) {
 			c5(lipgloss.NewStyle().Foreground(style.Accent2).Render(r.Iface)),
 		)
 		s.WriteString(row)
+		s.WriteString("\n")
 	}
+	return s.String(), nil
+}
+
+// GetConfig fetches the running node's configuration from the IPC server.
+func GetConfig(ctx context.Context) (string, error) {
+	cfg, err := ipc.GetConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	logFile := cfg.LogFile
+	if strings.TrimSpace(logFile) == "" {
+		logFile = "(stderr)"
+	}
+	ifaces := strings.Join(cfg.Interfaces, ", ")
+	if ifaces == "" {
+		ifaces = "(none)"
+	}
+
+	s := strings.Builder{}
+	s.WriteString(style.TitleStyle.Render("\n Node configuration "))
+	s.WriteString("\n")
+	fmt.Fprintf(&s, "  ID:             %d\n", cfg.ID)
+	fmt.Fprintf(&s, "  Port:           %d\n", cfg.Port)
+	fmt.Fprintf(&s, "  Interfaces:     %s\n", ifaces)
+	fmt.Fprintf(&s, "  TTL:            %d\n", cfg.TTL)
+	fmt.Fprintf(&s, "  Lifetime:       %d s\n", cfg.Lifetime)
+	fmt.Fprintf(&s, "  Hello interval: %d s\n", cfg.HelloInterval)
+	fmt.Fprintf(&s, "  Log level:      %s\n", cfg.LogLevel)
+	fmt.Fprintf(&s, "  Log file:       %s\n", logFile)
+	fmt.Fprintf(&s, "  Daemon:         %t\n", cfg.IsDaemon)
 	return s.String(), nil
 }
