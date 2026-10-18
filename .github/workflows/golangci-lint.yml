@@ -8,7 +8,7 @@ on:
       - master
 
 env:
-  GO_VERSION: stable
+  GO_VERSION: 1.26.2
   GOLANGCI_LINT_VERSION: v2.13
 
 jobs:
