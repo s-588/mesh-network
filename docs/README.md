@@ -45,7 +45,7 @@ docker compose exec -it node2 /usr/local/bin/mesh-node
 docker compose attach node2
 ```
 
-![Docker Compose test topology](docs/gifs/1-main_functional.gif)
+<img width="1100" height="571" alt="1-main_functional" src="https://github.com/user-attachments/assets/398301f7-5336-4fb1-b4e7-cf4bbd0dbe21" />
 
 Network topology of this simulation:
 
@@ -80,19 +80,17 @@ Keyboard: `Tab` / `Shift+Tab` to move focus, `Enter` to advance a field or send,
 
 Left side is the destination id and the message. Right side is logs. Bottom is the neighbours table, then the routes table. The header shows this node's id and interfaces.
 
-![TUI starts a background node when none is running](docs/gifs/3-tui.gif)
+<img width="1100" height="571" alt="3-tui" src="https://github.com/user-attachments/assets/99afd3e3-766f-4363-a82c-4028a4f7638a" />
 
 **Send a message**
 
 Focus order is destination → message → Send. Type a live neighbour id, press Enter, type the message, press Enter on Send. 
 
-![Type a destination id, a message, and press Enter on Send](docs/gifs/4-send.gif)
+<img width="1100" height="571" alt="4-send" src="https://github.com/user-attachments/assets/9f175b4e-03fa-4f0f-b3f7-88f0179de62a" />
 
 **Neighbours & routes**
 
 Tab into the neighbours table (populated by HELLO), then into the routes table. Routes appear after a message or RREQ to a non-neighbour.
-
-![Tab into the neighbours table, then the routes table](docs/imgs/tables.png)
 
 ### CLI
 
