@@ -8,6 +8,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/s-588/mesh-network/pkg/logger"
+
+	nlog "github.com/s-588/mesh-network/internal/logger"
 )
 
 var (
@@ -47,9 +49,11 @@ var (
 			Italic(true)
 )
 
+// RouterLogHandler keeps the existing formatting and writes the result
+// into a shared ring buffer that the IPC /logs endpoint can serve.
 type RouterLogHandler struct {
-	Logs  chan<- string
-	level slog.Level
+	Buffer *nlog.Buffer
+	level  slog.Level
 }
 
 func (h *RouterLogHandler) Enabled(_ context.Context, level slog.Level) bool {
@@ -57,7 +61,7 @@ func (h *RouterLogHandler) Enabled(_ context.Context, level slog.Level) bool {
 }
 
 func (h *RouterLogHandler) Handle(ctx context.Context, r slog.Record) error {
-	if !h.Enabled(ctx, r.Level) {
+	if !h.Enabled(ctx, r.Level) || h.Buffer == nil {
 		return nil
 	}
 
@@ -68,27 +72,20 @@ func (h *RouterLogHandler) Handle(ctx context.Context, r slog.Record) error {
 	})
 
 	var formatted strings.Builder
-
 	switch t := attrs["type"].(type) {
 	case logger.LogMsgType:
 		switch t {
 		case logger.LogTypeDATAReceived:
 			formatted.WriteString(formatDataReceived(r, attrs))
-
 		case logger.LogTypeDATASent:
 			formatted.WriteString(formatDataSent(r, attrs))
-
 		case logger.LogTypeRREQReceived, logger.LogTypeRREQSent:
 			formatted.WriteString(formatRREQ(r, attrs))
-
 		case logger.LogTypeRREPReceived, logger.LogTypeRREPSent:
 			formatted.WriteString(formatRREP(r, attrs))
-
-		case logger.LogTypeRRERReceived:
+		case logger.LogTypeRRERReceived, logger.LogTypeRRERSent:
 			formatted.WriteString(formatRRER(r, attrs))
-		case logger.LogTypeRRERSent:
-			formatted.WriteString(formatRRER(r, attrs))
-		case logger.LogTypeDefault:
+		default:
 			formatted.WriteString(formatDefault(r, attrs))
 		}
 	default:
@@ -96,9 +93,8 @@ func (h *RouterLogHandler) Handle(ctx context.Context, r slog.Record) error {
 	}
 
 	if formatted.Len() > 0 {
-		h.Logs <- formatted.String()
+		h.Buffer.Add(formatted.String())
 	}
-
 	return nil
 }
 

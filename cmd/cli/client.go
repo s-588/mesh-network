@@ -160,3 +160,54 @@ func GetConfig(ctx context.Context) (string, error) {
 	fmt.Fprintf(&s, "  Daemon:         %t\n", cfg.IsDaemon)
 	return s.String(), nil
 }
+
+func GetLogs(ctx context.Context, since uint64, tail int) (string, error) {
+	entries, err := ipc.GetLogs(ctx, since)
+	if err != nil {
+		return "", err
+	}
+	if len(entries) == 0 {
+		return "No logs yet.\n", nil
+	}
+	if tail > 0 && len(entries) > tail {
+		entries = entries[len(entries)-tail:]
+	}
+	var b strings.Builder
+	for _, e := range entries {
+		b.WriteString(e.Line)
+		b.WriteString("\n")
+	}
+	return b.String(), nil
+}
+
+func GetQueue(ctx context.Context) (string, error) {
+	queue, err := ipc.GetQueue(ctx)
+	if err != nil {
+		return "", err
+	}
+	s := strings.Builder{}
+	s.WriteString(style.TitleStyle.Render("\n Pending message queue "))
+	s.WriteString("\n")
+	if len(queue) == 0 {
+		s.WriteString("  Queue is empty.\n")
+		return s.String(), nil
+	}
+	c1 := lipgloss.NewStyle().Width(colNodeID).Render
+	c2 := lipgloss.NewStyle().Width(8).Render
+	c3 := lipgloss.NewStyle().Width(colSeen).Render
+	s.WriteString(lipgloss.JoinHorizontal(lipgloss.Left,
+		c1(style.ResultHeaderStyle.Render("DstID")),
+		c2(style.ResultHeaderStyle.Render("Count")),
+		c3(style.ResultHeaderStyle.Render("Oldest Queued")),
+	) + "\n")
+	s.WriteString(lipgloss.NewStyle().Foreground(style.Muted).
+		Render(strings.Repeat("─", colNodeID+8+colSeen)) + "\n")
+	for _, q := range queue {
+		s.WriteString(lipgloss.JoinHorizontal(lipgloss.Left,
+			c1(lipgloss.NewStyle().Foreground(style.Accent).Render(fmt.Sprint(q.DstID))),
+			c2(lipgloss.NewStyle().Foreground(style.TextColor).Render(fmt.Sprint(q.Count))),
+			c3(lipgloss.NewStyle().Foreground(style.Warn).Render(q.OldestQueuedAt)),
+		) + "\n")
+	}
+	return s.String(), nil
+}

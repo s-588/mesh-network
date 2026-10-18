@@ -15,18 +15,20 @@ import (
 	"github.com/s-588/mesh-network/internal/ipc"
 	"github.com/s-588/mesh-network/internal/routing"
 	"github.com/s-588/mesh-network/internal/socket"
+
+	nlog "github.com/s-588/mesh-network/internal/logger"
 )
 
 // StartIPCServer starts the node's IPC server and blocks until it stops.
 // Cancelling ctx, or POST /kill, shuts the server down and returns nil.
 // A bind failure is returned so the daemon process exits instead of lingering
 // with no CLI interface.
-func StartIPCServer(ctx context.Context, t *socket.Socket, cfg config.Config) error {
+func StartIPCServer(ctx context.Context, t *socket.Socket, cfg config.Config, logBuf *nlog.Buffer) error {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 
 	mux := http.NewServeMux()
-	setupHandlers(mux, t, cfg, stop)
+	setupHandlers(mux, t, cfg, logBuf, stop)
 
 	server := &http.Server{
 		Addr:         "127.0.0.1" + ipc.IPCPort,
@@ -64,7 +66,7 @@ func StartIPCServer(ctx context.Context, t *socket.Socket, cfg config.Config) er
 	}
 }
 
-func setupHandlers(mux *http.ServeMux, t *socket.Socket, cfg config.Config, stop context.CancelFunc) {
+func setupHandlers(mux *http.ServeMux, t *socket.Socket, cfg config.Config, logBuf *nlog.Buffer, stop context.CancelFunc) {
 	handleSend(mux, t)
 	handleMessages(mux, t)
 	handleRREQ(mux, t)
@@ -72,24 +74,29 @@ func setupHandlers(mux *http.ServeMux, t *socket.Socket, cfg config.Config, stop
 	handleNeighbours(mux)
 	handleConfig(mux, cfg)
 	handleKill(mux, cfg, stop)
+	handleLogs(mux, logBuf)
+	handleQueue(mux, t)
 }
 
 func handleKill(mux *http.ServeMux, cfg config.Config, stop context.CancelFunc) {
 	mux.HandleFunc("/kill", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
-			http.Error(w, "use POST /kill to stop the node", http.StatusMethodNotAllowed)
+			http.Error(w, "use POST /kill", http.StatusMethodNotAllowed)
 			return
 		}
-
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = fmt.Fprintf(w, "Shutting down node %d\n", cfg.ID)
 		slog.Info("shutdown requested", "id", cfg.ID)
 
-		// Return from the handler before cancelling. Shutdown waits for this
-		// request to finish, so cancelling from inside it would deadlock.
+		// Cancel after the response has been flushed. Shutdown waits for the
+		// handler to return, so we schedule stop on a dedicated goroutine and
+		// give the writer a moment.
+		shutCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		_ = shutCtx
 		go func() {
-			time.Sleep(150 * time.Millisecond)
+			defer cancel()
+			time.Sleep(200 * time.Millisecond)
 			stop()
 		}()
 	})
@@ -155,9 +162,16 @@ func handleRREQ(mux *http.ServeMux, t *socket.Socket) {
 			http.Error(w, "invalid destination ID", http.StatusBadRequest)
 			return
 		}
-
-		t.SendRREQ(dst)
-		_, _ = fmt.Fprintf(w, "Route request sent for node %d\n", dst)
+		_, known := routing.FindRoute(dst)
+		dto := ipc.RREQResultDTO{RouteKnown: known, RREQSent: !known, Dst: dst}
+		if known {
+			dto.Message = fmt.Sprintf("Route to node %d already known, RREQ skipped.", dst)
+		} else {
+			t.SendRREQ(dst)
+			dto.Message = fmt.Sprintf("RREQ broadcast for node %d.", dst)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(dto)
 	})
 }
 
@@ -190,7 +204,59 @@ func handleSend(mux *http.ServeMux, t *socket.Socket) {
 			return
 		}
 
-		t.SendData(dst, []byte(msg))
-		_, _ = fmt.Fprintf(w, "Message added to queue for node %d\n", dst)
+		out := t.SendData(dst, []byte(msg))
+		dto := ipc.SendResultDTO{
+			Sent: out.Sent, Queued: out.Queued,
+			QueueLen: out.QueueLen, Dst: out.Dst,
+		}
+		switch {
+		case out.Sent:
+			dto.Message = fmt.Sprintf("Message sent immediately to node %d.", dst)
+		case out.Queued:
+			dto.Message = fmt.Sprintf(
+				"Route to node %d unknown. Message queued (queue length %d). RREQ sent.",
+				dst, out.QueueLen)
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+			dto.Message = "Message could not be sent."
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(dto)
+	})
+}
+
+func handleLogs(mux *http.ServeMux, buf *nlog.Buffer) {
+	if buf == nil {
+		return
+	}
+	mux.HandleFunc("/logs", func(w http.ResponseWriter, r *http.Request) {
+		since, _ := strconv.ParseUint(r.URL.Query().Get("since"), 10, 64)
+		entries := buf.Since(since)
+		dto := make([]ipc.LogEntryDTO, 0, len(entries))
+		for _, e := range entries {
+			dto = append(dto, ipc.LogEntryDTO{ID: e.ID, Line: e.Line})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(dto); err != nil {
+			slog.Error("can't write logs response", "error", err)
+		}
+	})
+}
+
+func handleQueue(mux *http.ServeMux, t *socket.Socket) {
+	mux.HandleFunc("/queue", func(w http.ResponseWriter, _ *http.Request) {
+		list := t.GetQueue()
+		dto := make([]ipc.QueueEntryDTO, 0, len(list))
+		for _, q := range list {
+			dto = append(dto, ipc.QueueEntryDTO{
+				DstID:          q.DstID,
+				Count:          q.Count,
+				OldestQueuedAt: q.OldestQueuedAt.Format(time.RFC3339),
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(dto); err != nil {
+			slog.Error("can't write queue response", "error", err)
+		}
 	})
 }

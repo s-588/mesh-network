@@ -89,7 +89,7 @@ func (n neighbour) cell(id, width int) string {
 
 func neighbourSpecs() []colSpec {
 	return []colSpec{
-		{id: colID, title: "ID", short: "ID", min: 4, max: 10, flex: 1, drop: 0},
+		{id: colID, title: "ID", short: "ID", min: 4, max: 20, flex: 1, drop: 0},
 		{id: colAddr, title: "Address", short: "Addr", min: 8, max: 24, flex: 3, drop: 2},
 		{id: colSeen, title: "Last Seen", short: "Seen", min: 8, max: 19, flex: 2, drop: 4},
 		{id: colIface, title: "Iface", short: "If", min: 4, max: 12, flex: 1, drop: 3},

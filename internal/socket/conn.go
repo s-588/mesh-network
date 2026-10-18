@@ -35,9 +35,21 @@ type Socket struct {
 	inboxMsgs []string // all messages
 
 	pendingMu   sync.Mutex
-	pendingMsgs map[uint64][][]byte // RREQ messages waiting for incoming RREP
+	pendingMsgs map[uint64][]pendingMsg // RREQ messages waiting for incoming RREP
 
 	seqNum atomic.Uint32
+}
+
+type pendingMsg struct {
+	payload  []byte
+	queuedAt time.Time
+}
+
+// QueueEntry is one bucket of the user-visible queue.
+type QueueEntry struct {
+	DstID          uint64
+	Count          int
+	OldestQueuedAt time.Time
 }
 
 // interfaceState contains all data about network interface
@@ -62,7 +74,7 @@ func NewSocket(ctx context.Context, cfg config.AppConfig) (*Socket, error) {
 		links:        make(map[string]*interfaceState),
 		incomingMsgs: make(chan msg, 256),
 		seenRREQs:    make(map[uint64]uint64),
-		pendingMsgs:  make(map[uint64][][]byte),
+		pendingMsgs:  make(map[uint64][]pendingMsg),
 	}
 
 	for _, ifaceName := range cfg.Interfaces {
@@ -268,23 +280,26 @@ func (t *Socket) handleRREP(msg *protocol.RREP, from netip.AddrPort, iface strin
 	if msg.DstID == t.cfg.ID {
 		slog.Info("Route established",
 			"type", logger.LogTypeRREPReceived,
-			"to", msg.SrcID,
-			"via", from.Addr(),
-			"hops", msg.HopCount,
+			"to", msg.SrcID, "via", from.Addr(), "hops", msg.HopCount,
 		)
-
 		t.pendingMu.Lock()
 		messages, ok := t.pendingMsgs[msg.SrcID]
 		if ok {
 			delete(t.pendingMsgs, msg.SrcID)
-			t.pendingMu.Unlock()
-
-			slog.Info("Sending buffered messages", "count", len(messages), "to", msg.SrcID)
-			for _, payload := range messages {
-				t.SendData(msg.SrcID, payload)
+		}
+		t.pendingMu.Unlock()
+		if ok && len(messages) > 0 {
+			slog.Info("Flushing queued messages",
+				"to", msg.SrcID, "count", len(messages),
+			)
+			for _, pm := range messages {
+				age := time.Since(pm.queuedAt).Round(time.Millisecond)
+				slog.Info("Sending queued message",
+					"to", msg.SrcID, "queued_for", age,
+					"payload", string(pm.payload),
+				)
+				t.SendData(msg.SrcID, pm.payload)
 			}
-		} else {
-			t.pendingMu.Unlock()
 		}
 		return
 	}
@@ -359,32 +374,45 @@ func (t *Socket) handleDATA(msg *protocol.DATA, from netip.AddrPort) {
 
 // SendData method marshal payload and send it to dstID if path exists.
 // If path is not exists it will save message in Socket.pendingMsgs and initiate route search.
-func (t *Socket) SendData(dstID uint64, payload []byte) {
-	route, found := routing.FindRoute(dstID)
+// SendOutcome describes what happened to an outgoing DATA message.
+type SendOutcome struct {
+	Sent     bool   `json:"sent"`
+	Queued   bool   `json:"queued"`
+	QueueLen int    `json:"queue_len"`
+	Dst      uint64 `json:"dst"`
+}
 
+func (t *Socket) SendData(dstID uint64, payload []byte) SendOutcome {
+	route, found := routing.FindRoute(dstID)
 	if !found {
-		slog.Info("Route not found, saving in queue",
-			"from", t.cfg.ID,
-			"to", dstID,
-		)
 		t.pendingMu.Lock()
-		t.pendingMsgs[dstID] = append(t.pendingMsgs[dstID], payload)
+		t.pendingMsgs[dstID] = append(t.pendingMsgs[dstID],
+			pendingMsg{payload: payload, queuedAt: time.Now()})
+		qlen := len(t.pendingMsgs[dstID])
 		t.pendingMu.Unlock()
 
+		slog.Info("Route not found, message queued",
+			"from", t.cfg.ID, "to", dstID,
+			"queue_len", qlen,
+			"queued_at", time.Now().Format(time.RFC3339),
+		)
 		t.SendRREQ(dstID)
-		return
+		return SendOutcome{Queued: true, QueueLen: qlen, Dst: dstID}
+	}
+
+	link, ok := t.links[route.Interface]
+	if !ok {
+		slog.Error("Route points to unknown interface",
+			"dst", dstID, "iface", route.Interface)
+		return SendOutcome{Dst: dstID}
 	}
 
 	t.seqNum.Add(1)
-	now := time.Now().Unix()
-	if now < math.MaxInt64 || now < 0 {
-		now = math.MaxInt64
-	}
 	opts := protocol.DATAOpts{
 		HeaderOpts: protocol.HeaderOpts{
 			MsgType:   protocol.DATAMsgType,
-			Timestamp: uint64(now),
-			SrcIP:     t.links[route.Interface].addr,
+			Timestamp: uint64(time.Now().UnixMilli()),
+			SrcIP:     link.addr,
 			DstIP:     route.NextHopAddr.Addr(),
 			SrcID:     t.cfg.ID,
 			DstID:     dstID,
@@ -393,31 +421,25 @@ func (t *Socket) SendData(dstID uint64, payload []byte) {
 		Payload: payload,
 		SeqNum:  t.seqNum.Load(),
 	}
-
 	dataMsg, err := protocol.NewDATA(opts)
 	if err != nil {
-		slog.Error("creating DATA message", "error", err,
-			"from", t.cfg.ID,
-			"next_hop", route.NextHopAddr.Addr(),
-			"to", dstID,
-		)
-		return
+		slog.Error("creating DATA", "error", err, "to", dstID)
+		return SendOutcome{Dst: dstID}
 	}
 	bytes, err := dataMsg.MarshalBinary()
 	if err != nil {
-		slog.Error("marshaling DATA message", "error", err,
-			"from", t.cfg.ID,
-			"next_hop", route.NextHopAddr.Addr(),
-			"to", dstID,
-		)
-		return
+		slog.Error("marshal DATA", "error", err, "to", dstID)
+		return SendOutcome{Dst: dstID}
 	}
-
 	t.sendToAddr(bytes, route.NextHopAddr, route.Interface)
 	slog.Info("Message sent",
 		"type", logger.LogTypeDATASent,
-		"to", route.DstID,
-		"payload", string(dataMsg.Payload))
+		"to", dstID,
+		"payload", string(payload),
+		"hops", route.HopCount,
+		"next_hop", route.NextHopID,
+	)
+	return SendOutcome{Sent: true, Dst: dstID}
 }
 
 // SendRREQ initialize search of target and broadcast RREQ
@@ -526,17 +548,15 @@ func (t *Socket) SendRREP(msg *protocol.RREQ, dst netip.AddrPort, iface string) 
 		return
 	}
 
-	udpAddr := &net.UDPAddr{
-		IP:   dst.Addr().AsSlice(),
-		Port: int(dst.Port()),
+	link, ok := t.links[iface]
+	if !ok {
+		slog.Error("Cannot send RREP: unknown interface",
+			"iface", iface, "to", msg.SrcID)
+		return
 	}
-
-	_, err = t.links[iface].conn.WriteToUDP(data, udpAddr)
-	if err != nil {
-		slog.Error("Can't send RREP", "error", err,
-			"to", msg.SrcID,
-			"next_hop", dst,
-		)
+	udpAddr := &net.UDPAddr{IP: dst.Addr().AsSlice(), Port: int(dst.Port())}
+	if _, err := link.conn.WriteToUDP(data, udpAddr); err != nil {
+		slog.Error("RREP send failed", "error", err, "to", msg.SrcID)
 	}
 }
 
@@ -931,4 +951,42 @@ func rrepAttrs(msg *protocol.RREP, srcAddr netip.AddrPort, iface string) []any {
 		"hops", msg.HopCount,
 		"ttl", msg.TTL,
 	}
+}
+
+// GetQueue returns a snapshot of pending destinations.
+func (t *Socket) GetQueue() []QueueEntry {
+	t.pendingMu.Lock()
+	defer t.pendingMu.Unlock()
+	out := make([]QueueEntry, 0, len(t.pendingMsgs))
+	for dst, list := range t.pendingMsgs {
+		if len(list) == 0 {
+			continue
+		}
+		out = append(out, QueueEntry{
+			DstID:          dst,
+			Count:          len(list),
+			OldestQueuedAt: list[0].queuedAt,
+		})
+	}
+	slices.SortFunc(out, func(a, b QueueEntry) int {
+		if a.DstID > b.DstID {
+			return 1
+		}
+		if a.DstID < b.DstID {
+			return -1
+		}
+		return 0
+	})
+	return out
+}
+
+// PendingCount returns total queued messages (all destinations).
+func (t *Socket) PendingCount() int {
+	t.pendingMu.Lock()
+	defer t.pendingMu.Unlock()
+	n := 0
+	for _, l := range t.pendingMsgs {
+		n += len(l)
+	}
+	return n
 }

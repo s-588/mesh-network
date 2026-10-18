@@ -45,7 +45,7 @@ func ipcURL(path string, query url.Values) string {
 func doIPC(ctx context.Context, method, path string, query url.Values) ([]byte, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 3*time.Second)
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 	}
 
@@ -110,30 +110,38 @@ func KillNode(ctx context.Context) (string, error) {
 	return string(body), nil
 }
 
-// SendRREQ asks the node to discover a path to dst.
-func SendRREQ(ctx context.Context, dst uint64) (string, error) {
+// SendMsg now returns the structured outcome so callers can distinguish
+// "sent" from "queued".
+func SendMsg(ctx context.Context, dst uint64, msg string) (SendResultDTO, error) {
+	if err := CheckMsg(msg); err != nil {
+		return SendResultDTO{}, err
+	}
+	q := url.Values{}
+	q.Set("dst", strconv.FormatUint(dst, 10))
+	q.Set("msg", msg)
+	body, err := doIPC(ctx, http.MethodGet, "/send", q)
+	if err != nil {
+		return SendResultDTO{}, err
+	}
+	var res SendResultDTO
+	if err := json.Unmarshal(body, &res); err != nil {
+		return SendResultDTO{}, fmt.Errorf("can't decode send response: %w", err)
+	}
+	return res, nil
+}
+
+func SendRREQ(ctx context.Context, dst uint64) (RREQResultDTO, error) {
 	q := url.Values{}
 	q.Set("dst", strconv.FormatUint(dst, 10))
 	body, err := doIPC(ctx, http.MethodGet, "/rreq", q)
 	if err != nil {
-		return "", err
+		return RREQResultDTO{}, err
 	}
-	return string(body), nil
-}
-
-// SendMsg sends text to dst via the node's IPC server.
-func SendMsg(ctx context.Context, dst uint64, msg string) (string, error) {
-	if err := CheckMsg(msg); err != nil {
-		return "", err
+	var res RREQResultDTO
+	if err := json.Unmarshal(body, &res); err != nil {
+		return RREQResultDTO{}, fmt.Errorf("can't decode rreq response: %w", err)
 	}
-	q := url.Values{}
-	q.Set("dst", strconv.FormatUint(dst, 10))
-	q.Set("msg", msg) // Query.Get on the server already unescapes; avoid double-escape
-	body, err := doIPC(ctx, http.MethodGet, "/send", q)
-	if err != nil {
-		return "", err
-	}
-	return string(body), nil
+	return res, nil
 }
 
 // GetMessages returns received messages from the node's IPC server.
@@ -190,4 +198,30 @@ func GetConfig(ctx context.Context) (ConfigDTO, error) {
 		return ConfigDTO{}, fmt.Errorf("can't decode config response: %w", err)
 	}
 	return cfg, nil
+}
+
+func GetLogs(ctx context.Context, since uint64) ([]LogEntryDTO, error) {
+	q := url.Values{}
+	q.Set("since", strconv.FormatUint(since, 10))
+	body, err := doIPC(ctx, http.MethodGet, "/logs", q)
+	if err != nil {
+		return nil, err
+	}
+	var entries []LogEntryDTO
+	if err := json.Unmarshal(body, &entries); err != nil {
+		return nil, fmt.Errorf("can't decode logs: %w", err)
+	}
+	return entries, nil
+}
+
+func GetQueue(ctx context.Context) ([]QueueEntryDTO, error) {
+	body, err := doIPC(ctx, http.MethodGet, "/queue", nil)
+	if err != nil {
+		return nil, err
+	}
+	var list []QueueEntryDTO
+	if err := json.Unmarshal(body, &list); err != nil {
+		return nil, fmt.Errorf("can't decode queue: %w", err)
+	}
+	return list, nil
 }

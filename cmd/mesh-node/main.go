@@ -24,7 +24,7 @@ import (
 	"github.com/s-588/mesh-network/cmd/tui"
 	"github.com/s-588/mesh-network/internal/config"
 	"github.com/s-588/mesh-network/internal/ipc"
-	"github.com/s-588/mesh-network/internal/logger"
+	nlog "github.com/s-588/mesh-network/internal/logger"
 	"github.com/s-588/mesh-network/internal/socket"
 )
 
@@ -191,7 +191,7 @@ node from the shell. Stop that node with "mesh-node kill".`,
 							if err != nil {
 								return err
 							}
-							_, _ = fmt.Fprint(os.Stdout, result)
+							_, _ = fmt.Fprint(os.Stdout, result.Message)
 							return nil
 						},
 					},
@@ -225,7 +225,7 @@ node from the shell. Stop that node with "mesh-node kill".`,
 							if err != nil {
 								return err
 							}
-							_, _ = fmt.Fprint(os.Stdout, result)
+							_, _ = fmt.Fprintf(os.Stdout, "To Node %d: %s", result.Dst, result.Message)
 							return nil
 						},
 					},
@@ -235,6 +235,35 @@ node from the shell. Stop that node with "mesh-node kill".`,
 				Name:  "show",
 				Usage: "Display information from the running background server",
 				Commands: []*urfave.Command{
+					{
+						Name:    "logs",
+						Aliases: []string{"l"},
+						Usage:   "Show recent logs from the running node",
+						Flags: []urfave.Flag{
+							&urfave.IntFlag{Name: "tail", Usage: "show only the last N lines", Value: 50},
+						},
+						Action: func(ctx context.Context, c *urfave.Command) error {
+							result, err := cli.GetLogs(ctx, 0, c.Int("tail"))
+							if err != nil {
+								return err
+							}
+							_, _ = fmt.Fprint(os.Stdout, result)
+							return nil
+						},
+					},
+					{
+						Name:    "queue",
+						Aliases: []string{"q"},
+						Usage:   "Show messages still waiting for a route",
+						Action: func(ctx context.Context, _ *urfave.Command) error {
+							result, err := cli.GetQueue(ctx)
+							if err != nil {
+								return err
+							}
+							_, _ = fmt.Fprint(os.Stdout, result)
+							return nil
+						},
+					},
 					{
 						Name:    "messages",
 						Aliases: []string{"m", "msgs"},
@@ -316,13 +345,9 @@ func runDaemon(ctx context.Context, cfg config.Config) error {
 		return err
 	}
 
-	tuiLogChan := make(chan string, 10) // drained; the TUI client has its own channel
-	go func() {
-		for range tuiLogChan {
-		}
-	}()
-	tuiLogger := &tui.RouterLogHandler{Logs: tuiLogChan}
-	if err := logger.SetupSlog(cfg, tuiLogger); err != nil {
+	logBuf := nlog.NewBuffer(2000)
+	tuiLogger := &tui.RouterLogHandler{Buffer: logBuf}
+	if err := nlog.SetupSlog(cfg, tuiLogger); err != nil {
 		return err
 	}
 
@@ -347,7 +372,7 @@ func runDaemon(ctx context.Context, cfg config.Config) error {
 
 	slog.Info("Node started as daemon", "id", cfg.ID, "ipc", ipc.IPCPort)
 	slog.Info("Stop this node with: mesh-node kill")
-	return cli.StartIPCServer(ctx, t, cfg)
+	return cli.StartIPCServer(ctx, t, cfg, logBuf)
 }
 
 // runTUI ensures a background server is available and launches the TUI client.
@@ -484,14 +509,12 @@ func parseArgs(c *urfave.Command) []string {
 
 // runTUIClient starts the interactive TUI that talks to the IPC server.
 func runTUIClient(ctx context.Context, cfg config.Config) error {
-	// Minimal logger for the client process itself
-	tuiLogChan := make(chan string, 10)
-	tuiLogger := &tui.RouterLogHandler{Logs: tuiLogChan}
-	if err := logger.SetupSlog(cfg, tuiLogger); err != nil {
+	// Client-side logs go to a throwaway buffer; the TUI reads the *node's*
+	// logs from the daemon via IPC.
+	tuiLogger := &tui.RouterLogHandler{Buffer: nlog.NewBuffer(100)}
+	if err := nlog.SetupSlog(cfg, tuiLogger); err != nil {
 		return err
 	}
-
-	// Prefer the *server's* identity over the client process config.
 	nodeID := cfg.ID
 	ifaces := cfg.Interfaces
 	if serverCfg, err := ipc.GetConfig(ctx); err == nil {
@@ -500,11 +523,10 @@ func runTUIClient(ctx context.Context, cfg config.Config) error {
 			ifaces = serverCfg.Interfaces
 		}
 	}
-
 	slog.Info("Starting TUI client", "nodeID", nodeID)
 
 	// Pass nil socket — the model will use the CLI HTTP client instead.
-	tuiModel := tui.InitialModel(nodeID, ifaces, tuiLogChan, nil)
+	tuiModel := tui.InitialModel(nodeID, ifaces, nil)
 	p := tea.NewProgram(tuiModel)
 	if _, err := p.Run(); err != nil {
 		slog.Error("TUI crashed", "error", err)

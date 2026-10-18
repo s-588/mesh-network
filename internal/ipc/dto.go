@@ -30,3 +30,33 @@ type ConfigDTO struct {
 	LogFile       string   `json:"log_file"`
 	IsDaemon      bool     `json:"is_daemon"`
 }
+
+// LogEntryDTO mirrors logger.Entry.
+type LogEntryDTO struct {
+	ID   uint64 `json:"id"`
+	Line string `json:"line"`
+}
+
+// QueueEntryDTO describes one destination's pending backlog.
+type QueueEntryDTO struct {
+	DstID          uint64 `json:"dst_id"`
+	Count          int    `json:"count"`
+	OldestQueuedAt string `json:"oldest_queued_at"`
+}
+
+// SendResultDTO is what POST /send returns.
+type SendResultDTO struct {
+	Sent     bool   `json:"sent"`
+	Queued   bool   `json:"queued"`
+	QueueLen int    `json:"queue_len,omitempty"`
+	Dst      uint64 `json:"dst"`
+	Message  string `json:"message"`
+}
+
+// RREQResultDTO is what GET /rreq returns.
+type RREQResultDTO struct {
+	RouteKnown bool   `json:"route_known"`
+	RREQSent   bool   `json:"rreq_sent"`
+	Dst        uint64 `json:"dst"`
+	Message    string `json:"message"`
+}

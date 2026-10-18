@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/table"
@@ -40,8 +39,9 @@ type model struct {
 	routesTable      table.Model
 
 	focused int
-	logs    []string
-	logChan <-chan string
+
+	logs      []string
+	lastLogID uint64
 
 	nodeID uint64
 	ifaces []string
@@ -71,7 +71,7 @@ type model struct {
 	routes     []routeEntry
 }
 
-func InitialModel(nodeID uint64, ifaces []string, logChan <-chan string, sock *socket.Socket) model {
+func InitialModel(nodeID uint64, ifaces []string, sock *socket.Socket) model {
 	ti := textinput.New()
 	ti.Placeholder = "Receiver node ID..."
 	ti.Focus()
@@ -82,11 +82,7 @@ func InitialModel(nodeID uint64, ifaces []string, logChan <-chan string, sock *s
 	ta.SetHeight(3)
 
 	vp := viewport.New()
-	if sock == nil {
-		vp.SetContent("Connected to background node via IPC.\nResults and logs will appear here.")
-	} else {
-		vp.SetContent("Results will appear here.")
-	}
+	vp.SetContent("Connected to background node via IPC.\nResults and logs will appear here.")
 
 	neighboursTable := table.New(
 		table.WithColumns([]table.Column{{Title: "ID", Width: 4}}),
@@ -114,10 +110,8 @@ func InitialModel(nodeID uint64, ifaces []string, logChan <-chan string, sock *s
 		nodeID:           nodeID,
 		ifaces:           ifaces,
 		logs:             make([]string, 0),
-		logChan:          logChan,
 		sock:             sock,
 	}
-	// Real size arrives as WindowSizeMsg; 80×24 is only the first frame.
 	m.updateSizes(80, 24)
 	return m
 }
@@ -125,7 +119,8 @@ func InitialModel(nodeID uint64, ifaces []string, logChan <-chan string, sock *s
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		textinput.Blink,
-		listenForLogs(m.logChan),
+		fetchLogsCmd(0),
+		logsTickCmd(),
 		refreshTablesCmd(),
 	)
 }
@@ -190,37 +185,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshRoutesTable()
 		return m, refreshTablesCmd()
 
-	case LogMsg:
-		m.pushLog(string(msg))
-		return m, listenForLogs(m.logChan)
+	case logsTickMsg:
+		cmds = append(cmds, fetchLogsCmd(m.lastLogID), logsTickCmd())
+
+	case logsFetchedMsg:
+		if len(msg.entries) > 0 {
+			for _, e := range msg.entries {
+				m.logs = append(m.logs, e.Line)
+				m.lastLogID = e.ID
+			}
+			m.reloadLogs()
+		}
 
 	case tea.WindowSizeMsg:
 		m.updateSizes(msg.Width, msg.Height)
 		return m, nil
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-		case "esc":
-			return processEscPress(m)
-		case "tab":
-			m.nextFocus()
-			return m, nil
-		case "shift+tab":
-			m.prevFocus()
-			return m, nil
-		case "enter":
-			return processEnterPress(m), nil
-		case "1", "2", "3", "4":
-			// Digits still type into the fields. Outside of them they jump
-			// pages, which is the only way to see every section when the
-			// terminal is too small to show them all.
-			if m.mode == layoutCompact && !m.typing() {
-				m.focusSection(int(msg.String()[0] - '1'))
-				return m, nil
-			}
-		}
+		var cmd tea.Cmd
+		m, cmd = processKeyMsg(msg, m)
+		cmds = append(cmds, cmd)
 	}
 
 	var cmd tea.Cmd
@@ -244,7 +228,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func processEnterPress(m model) tea.Model {
+func processKeyMsg(msg tea.KeyMsg, m model) (model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		return processEscPress(m)
+	case "tab":
+		m.nextFocus()
+		return m, nil
+	case "shift+tab":
+		m.prevFocus()
+		return m, nil
+	case "enter":
+		return processEnterPress(m), nil
+	case "1", "2", "3", "4":
+		// Digits still type into the fields. Outside of them they jump
+		// pages, which is the only way to see every section when the
+		// terminal is too small to show them all.
+		if m.mode == layoutCompact && !m.typing() {
+			m.focusSection(int(msg.String()[0] - '1'))
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func processEnterPress(m model) model {
 	switch m.focused {
 	case focusNodeInput:
 		if m.nodeIDTextInput.Focused() {
@@ -268,19 +278,18 @@ func processEnterPress(m model) tea.Model {
 			m.pushLog("Error: " + err.Error())
 			return m
 		}
-
-		if m.sock != nil {
-			m.sock.SendData(nodeID, []byte(payload))
-			m.pushLog(fmt.Sprintf("Sent to %d (local): %s", nodeID, payload))
-		} else {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			result, err := ipc.SendMsg(ctx, nodeID, payload)
-			if err != nil {
-				m.pushLog(fmt.Sprintf("Send failed: %v", err))
-				return m
-			}
-			m.pushLog(strings.TrimSpace(result))
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		res, err := ipc.SendMsg(ctx, nodeID, payload)
+		if err != nil {
+			m.pushLog(fmt.Sprintf("Send failed: %v", err))
+			return m
+		}
+		switch {
+		case res.Sent:
+			m.pushLog(fmt.Sprintf("→ %d: sent immediately", nodeID))
+		case res.Queued:
+			m.pushLog(fmt.Sprintf("→ %d: queued (backlog %d) — awaiting RREP", nodeID, res.QueueLen))
 		}
 		m.payloadAreaInput.SetValue("")
 	case focusLogs:
@@ -289,7 +298,7 @@ func processEnterPress(m model) tea.Model {
 	return m
 }
 
-func processEscPress(m model) (tea.Model, tea.Cmd) {
+func processEscPress(m model) (model, tea.Cmd) {
 	switch m.focused {
 	case focusNodeInput:
 		if m.nodeIDTextInput.Focused() {

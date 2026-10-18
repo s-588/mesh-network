@@ -35,7 +35,7 @@ func newTestSocket(t *testing.T) *Socket {
 		links:        make(map[string]*interfaceState),
 		incomingMsgs: make(chan msg, 256),
 		seenRREQs:    make(map[uint64]uint64),
-		pendingMsgs:  make(map[uint64][][]byte),
+		pendingMsgs:  make(map[uint64][]pendingMsg),
 		inboxMsgs:    make([]string, 0),
 	}
 }
@@ -280,9 +280,12 @@ func TestSocket_handleRREP(t *testing.T) {
 		s := newTestSocket(t)
 		withLocalUDP(t, s, "eth0")
 
-		payload := []byte("buffered")
+		payload := pendingMsg{
+			payload:  []byte("buffered"),
+			queuedAt: time.Now(),
+		}
 		s.pendingMu.Lock()
-		s.pendingMsgs[55] = [][]byte{payload}
+		s.pendingMsgs[55] = []pendingMsg{payload}
 		s.pendingMu.Unlock()
 
 		rrep := &protocol.RREP{
@@ -333,7 +336,7 @@ func TestSocket_handleRREP(t *testing.T) {
 		withLocalUDP(t, s, "eth0")
 
 		s.pendingMu.Lock()
-		s.pendingMsgs[10] = [][]byte{[]byte("msg")}
+		s.pendingMsgs[10] = []pendingMsg{{[]byte("msg"), time.Now()}}
 		s.pendingMu.Unlock()
 
 		rrep := &protocol.RREP{
@@ -465,8 +468,8 @@ func TestSocket_SendData(t *testing.T) {
 		if len(queued) != 1 {
 			t.Fatalf("pendingMsgs[42] len = %d, want 1", len(queued))
 		}
-		if string(queued[0]) != string(payload) {
-			t.Errorf("queued payload = %q, want %q", queued[0], payload)
+		if string(queued[0].payload) != string(payload) {
+			t.Errorf("queued payload = %v, want %q", queued[0], payload)
 		}
 	})
 

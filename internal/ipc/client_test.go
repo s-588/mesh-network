@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -69,14 +70,27 @@ func TestClientRoundTrip(t *testing.T) {
 			http.Error(w, "bad dst", http.StatusBadRequest)
 			return
 		}
-		_, _ = w.Write([]byte("Route request sent for node 9\n"))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(RREQResultDTO{
+			RouteKnown: false,
+			RREQSent:   true,
+			Dst:        9,
+			Message:    "RREQ broadcast for node 9.",
+		})
 	})
 	mux.HandleFunc("/send", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("msg") != "hello world" || r.URL.Query().Get("dst") != "9" {
 			http.Error(w, "bad query", http.StatusBadRequest)
 			return
 		}
-		_, _ = w.Write([]byte("Message added to queue for node 9\n"))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(SendResultDTO{
+			Sent:     false,
+			Queued:   true,
+			QueueLen: 1,
+			Dst:      9,
+			Message:  "Route to node 9 unknown. Message queued (queue length 1). RREQ sent.",
+		})
 	})
 	mux.HandleFunc("/kill", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -116,13 +130,13 @@ func TestClientRoundTrip(t *testing.T) {
 	}
 
 	rreq, err := SendRREQ(ctx, 9)
-	if err != nil || !strings.Contains(rreq, "node 9") {
-		t.Fatalf("rreq: %q %v", rreq, err)
+	if err != nil || !strings.Contains(rreq.Message, "node 9") {
+		t.Fatalf("rreq: %v %v", rreq, err)
 	}
 
 	sent, err := SendMsg(ctx, 9, "hello world")
-	if err != nil || !strings.Contains(sent, "node 9") {
-		t.Fatalf("send: %q %v", sent, err)
+	if err != nil || !strings.Contains(sent.Message, "node 9") {
+		t.Fatalf("send: %v %v", sent, err)
 	}
 
 	killed, err := KillNode(ctx)
